@@ -49,9 +49,7 @@ local show "se b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) stats(N, fmt(0))"
 local tex  "`show' booktabs"
 
 
-*==============================================================================
-* PART 1. BUILD THE DATASET
-*==============================================================================
+*** PART 1. BUILD THE DATASET ***
 
 * 1.1 Take Albania out of each original file, rename the variables so the three
 *     waves match, and stack the waves into one dataset (one row per student).
@@ -61,7 +59,7 @@ local file2018 "HBSC2018OAed1.1"
 local file2022 "HBSC2022OAed1.0"
 
 * The variables we keep from every wave. Suggest more.
-local keepvars wave id1 id2 id3 sex agecat grade brothers sisters                ///
+local keepvars wave id1 id2 id3 sex agecat grade brothers sisters                  ///
     feellow irritable nervous sleepdifficulty lifesat                              ///
     fasfamcar fasbedroom fascomputers fasbathroom fasdishwash fasholidays          ///
     employfa employmo mfses mmses                                                  ///
@@ -220,9 +218,7 @@ global CLS_MIN "girl i.age_grp c.n_class"
 global CLS     "$CLS_MIN fas_z i.emo i.efa"
 
 
-*==============================================================================
-* PART 2. DESCRIPTIVE STATISTICS (Table 1)
-*==============================================================================
+*** PART 2. DESCRIPTIVE STATISTICS (Table 1) ***
 eststo clear
 foreach w in 2014 2018 2022 {
     eststo D`w': quietly estpost summarize girl complaints3 lifesat nsib share_bro share_girls_cls ///
@@ -234,12 +230,10 @@ esttab D2014 D2018 D2022 using "$out/tables/T1_descriptives.tex", replace bookta
 esttab D2014 D2018 D2022, cells("count mean(fmt(2)) sd(fmt(2))") mtitles("2014" "2018" "2022") nonumber
 
 
-*==============================================================================
-* PART 3. RANDOM ASSIGNMENT BALANCE TESTS
-*==============================================================================
-*WE PROBABLY WANT TO MERGE 3.1 and 3.2 INTO ONE TABLE IN THE APPENDIX IT WOULD LOOK NICER.
+*** PART 3. RANDOM ASSIGNMENT BALANCE TESTS ***
+*=================WE PROBABLY WANT TO MERGE 3.1 and 3.2 INTO ONE TABLE IN THE APPENDIX IT WOULD LOOK NICER.=================================
 
-*---- 3.1 Sibling gender (2014 and 2022) -----------------------------------------
+** 3.1 Sibling gender (2014 and 2022) **
 * If sibling gender were random: (a) about 51.2% of babies are boys, so the average
 * number of brothers should be about 0.512 times the number of siblings; (b) it should
 * not depend on the student's own sex or on family characteristics.
@@ -272,7 +266,7 @@ foreach w in 2014 2022 {
     testparm girl fas_z momwork dadwork
 }
 
-*---- 3.2 Class gender composition (2014, 2018, 2022) ------------------------------
+** 3.2 Class gender composition (2014, 2018, 2022) **
 * If classes were formed at random: (a) family characteristics should not predict the
 * share of girls; (b) classes should differ in their share of girls by about as much as
 * random draws would (we simulate this below).
@@ -340,14 +334,12 @@ foreach w in 2014 2018 2022 {
 }
 
 
-*==============================================================================
-* PART 4. HEADLINE RESULTS
+*** PART 4. HEADLINE RESULTS ***
 * Each table has three columns per outcome:
 *   (1) minimal controls   (2) HEADLINE specification   (3) HEADLINE + school-by-age FE
 * Standard errors are clustered by class. Effects are in standard deviations of the outcome.
-*==============================================================================
 
-*---- 4.1 Sibling gender, 2014 and 2022 ---------------------------------------------
+** 4.1 Sibling gender, 2014 and 2022 **
 foreach w in 2014 2022 {
     di _n "######## SIBLING GENDER, `w' ########"
     eststo clear
@@ -365,7 +357,7 @@ foreach w in 2014 2022 {
         mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)")
 }
 
-*---- 4.2 Class gender composition, 2014, 2018 and 2022 -------------------------------
+** 4.2 Class gender composition, 2014, 2018 and 2022 **
 foreach w in 2014 2018 2022 {
     di _n "######## CLASS COMPOSITION, `w' ########"
     eststo clear
@@ -387,7 +379,7 @@ foreach w in 2014 2018 2022 {
         mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)")
 }
 
-*---- 4.3 Pooled models: do the waves tell the same story? -------------------------
+** 4.3 Pooled models: do the waves tell the same story? **
 * The effect is allowed to differ by wave (one coefficient per wave). Wave dummies, and
 * wave-specific own-sex effects, are included. The "test" lines ask whether the wave
 * effects are equal; if they are not, report the wave-specific effects, not an average.
@@ -421,12 +413,10 @@ esttab PS_* PSc_*, `show' keep(bro_2014 bro_2022 share_bro)
 esttab PC_* PCc_*, `show' keep(girls_2014 girls_2018 girls_2022 share_girls_cls)
 
 
-*==============================================================================
-* PART 5. APPENDIX CHECKS (none of these change the headline results)
-*==============================================================================
+*** PART 5. APPENDIX CHECKS (none of these change the headline results) ***
 * THIS IS LARGELY GOING IN THE APPENDIX AND I HAVE TO ADMIT I DO NOT FULLY UNDERSTAND IT
 
-*---- 5.1 Both treatments in one regression (2014 and 2022) ---------------------------
+** 5.1 Both treatments in one regression (2014 and 2022) **
 * The headline models study the two treatments separately because they involve different
 * samples and different problems. This checks that putting them together changes little.
 eststo clear
@@ -439,7 +429,7 @@ foreach w in 2014 2022 {
 esttab J* using "$out/tables/A1_joint_model.tex", replace `tex' keep(share_bro share_girls_cls) ///
     title("Both treatments in one model")
 
-*---- 5.2 Robustness of the headline model ------------------------------------------------
+** 5.2 Robustness of the headline model **
 eststo clear
 foreach w in 2014 2018 2022 {
     * (a) complaints index with sleep difficulties added
@@ -457,7 +447,7 @@ eststo Rd_c2014: quietly reg complaints3 share_girls_cls $CLS i.father_occ i.mot
 esttab Ra_* Rb_* Rc_* Rd_* using "$out/tables/A2_robustness.tex", replace `tex' keep(share_bro share_girls_cls) ///
     title("Robustness: (a) 4-item index, (b) school clusters, (c) classes with 8+ respondents, (d) parents' occupation, 2014")
 
-*---- 5.3 Do effects differ by own sex or by age group? ----------------------------------
+** 5.3 Do effects differ by own sex or by age group? **
 * Own sex: the main coefficient is the effect for boys; the "girl#" line is how much
 * the effect for girls differs. "lincom" prints the total effect for girls.
 foreach w in 2014 2018 2022 {
@@ -514,7 +504,7 @@ foreach w in 2014 2022 {
         title("Class composition by age group, `w'")
 }
 
-*---- 5.4 Possible channels (mechanisms) ----------------------------------------------------
+** 5.4 Possible channels (mechanisms) **
 * For all five outcomes, HIGHER = WORSE (harder to talk to a parent, more bullied,
 * less classmate support, likes school less), so a negative coefficient is "better".
 foreach w in 2014 2018 2022 {
@@ -531,7 +521,7 @@ foreach w in 2014 2018 2022 {
         title("Channels: class composition, `w'")
 }
 
-*---- 5.5 Ordered probit ---------------------------------------------------------------------
+** 5.5 Ordered probit **
 * Ordinary regression treats answers such as "never ... every day" as equally spaced numbers.
 * Ordered probit only uses their order. If both agree, the equal-spacing assumption is not
 * driving the results. It needs whole-number answers, so it is run on the three symptom
@@ -561,7 +551,7 @@ foreach w in 2014 2018 2022 {
     margins, dydx(share_girls_cls) predict(outcome(5))
 }
 
-*---- 5.6 Small categories (these can make estimates unstable) ---------------------------------
+** 5.6 Small categories (these can make estimates unstable) **
 * Some answer categories contain very few students. Here is how many, and a check that the
 * headline results survive when the small categories are merged or removed.
 di _n "######## SMALL-CATEGORY COUNTS ########"

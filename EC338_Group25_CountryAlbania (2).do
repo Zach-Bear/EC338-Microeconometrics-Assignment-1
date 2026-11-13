@@ -9,14 +9,9 @@
 *   PART 1  Build the dataset      (take Albania out of each wave, line the waves up)
 *   PART 2  Descriptive statistics (Table 1)
 *   PART 3  Is assignment random?  (balance tests, benchmark, class-balance figure)
-*   PART 4  Headline results       (each wave and pooled, then the within-school check)
+*   PART 4  Headline results       (main tables, one per wave, then the pooled models)
 *   PART 5  Appendix checks        (robustness, subgroups, mechanisms, ordered probit,
 *                                   small-category checks)
-*
-* TABLES FOR THE PAPER
-*   Main    : T1 descriptives | T2, T3 balance tests | Fig1 class balance | T4, T5 main
-*             results (each wave plus pooled) | T6 within-school check
-*   Appendix: everything named A1 ... A9
 *
 * HEADLINE SPECIFICATION (this is what the paper's main tables report)
 *   Outcomes   : psychological complaints index (feeling low, irritable, nervous;
@@ -27,8 +22,8 @@
 *                (ii) share of girls among a student's classmates (2014, 2018, 2022)
 *                2018 has no sibling questions at all.
 *   Model      : OLS with own sex, age group, number of siblings (sibling model) or
-*                class size (class model), family affluence and parents' employment
-*                (works / does not work / unknown). Standard errors are clustered by class.
+*                class size (class model), family affluence and parents' employment.
+*                Standard errors are clustered by class.
 *   Identification check: the same model with school-by-age-group fixed effects,
 *                which compares classes within the same school and age group.
 *==============================================================================
@@ -45,9 +40,9 @@ cap mkdir "$out/tables"
 cap mkdir "$out/figures"
 cap log close _all
 log using "$out/EC338_Group25_CountryAlbania.log", replace text    // if Stata says the log is locked, close it in other programs first
-set seed 338                                                         // makes the random-class simulation repeatable
+set seed 338                                                       // makes the random-class simulation repeatable
 cap which esttab
-if _rc ssc install estout, replace                                   // package that writes the tables
+if _rc ssc install estout, replace                                 // package that writes the tables
 
 * How the tables are printed: "show" is for the log, "tex" is for the LaTeX files.
 local show "se b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) stats(N, fmt(0))"
@@ -63,8 +58,8 @@ local file2014 "HBSC2014OAed2.0"
 local file2018 "HBSC2018OAed1.1"
 local file2022 "HBSC2022OAed1.0"
 
-* The variables we keep from every wave
-local keepvars wave id1 id2 id3 sex agecat grade brothers sisters                ///
+* The variables we keep from every wave. Suggest more.
+local keepvars wave id1 id2 id3 sex agecat grade brothers sisters                  ///
     feellow irritable nervous sleepdifficulty lifesat                              ///
     fasfamcar fasbedroom fascomputers fasbathroom fasdishwash fasholidays          ///
     employfa employmo mfses mmses                                                  ///
@@ -75,12 +70,12 @@ foreach w in 2014 2018 2022 {
     use "$raw/`file`w''.dta", clear
 
     * make all variable names lower case so the waves match
-    rename *, lower
+	rename *, lower
+	
+    cap rename sleepdificulty sleepdifficulty      // the original files misspell this variable i kid you not
 
-    cap rename sleepdificulty sleepdifficulty      // the original files misspell this variable
-
-    * keep only Albania (its country code is 8000 in every wave)
-    keep if countryno == 8000
+    * keep only Albania, same no in each wave
+	keep if countryno == 8000
     gen wave = `w'
 
     * Siblings living in the student's main home. The variable names differ by wave,
@@ -94,12 +89,11 @@ foreach w in 2014 2018 2022 {
         gen sisters  = sisternum
     }
     else {
-        gen brothers = .         // a dot is how Stata writes a missing value; we use it a lot
+        gen brothers = . // this is how you code/create missing values in stata, will use a lot.
         gen sisters  = .
     }
 
-    * A variable that a wave does not have is created empty, so the waves can be stacked
-    * without data spilling into the wrong columns.
+    * A variable that a wave does not have is created empty, so the waves can be stacked without data spilling into the wrong columns.
     foreach v of local keepvars {
         cap confirm variable `v'
         if _rc gen `v' = .
@@ -107,16 +101,19 @@ foreach w in 2014 2018 2022 {
     keep `keepvars'
     save `w`w'', replace
 }
-use `w2014', clear   // 'w' for wave, 'v' for variable: we keep these placeholders consistent
+use `w2014', clear // 'w' for wave, 'v' for variable. Will try to keep consistent placeholders.
 append using `w2018' `w2022'
 
 * 1.2 Identifiers: a class number that is unique across waves, and a school number.
-* HBSC reuses school numbers across municipalities, so the school code combines the two.
+* There may be a better way to do this but I was proud of this way.
+* I'm not proud of HBSC repeating school numbers within waves, why?
 gen long classid = wave*100000 + id3
-* A few pupils have a different school code from their classmates (this happens only in
-* 2014 and 2018), so each class is given its most common school code.
+* The school code is municipality x school number. A few pupils have a different school
+* code from their classmates, so each class is given its most common school code.
+* This only happens in 2014 and 2018 suggesting it was a misreading issue or typo that got
+* fixed with later iterations of the questionnaire.
 gen school_code = id1*1000 + id2
-bys classid: egen school_mode = mode(school_code), minmode   // ties go to the smaller code
+bys classid: egen school_mode = mode(school_code), minmode // tiebreaks with minimum code
 egen school = group(wave school_mode)
 
 * 1.3 The student's own characteristics
@@ -169,12 +166,10 @@ replace emo = 9 if missing(emo)
 replace efa = 9 if missing(efa)
 gen momwork = (employmo == 1) if inlist(employmo, 1, 2)
 gen dadwork = (employfa == 1) if inlist(employfa, 1, 2)
-* Merged version used in the regressions: works / does not work / unknown. The full
-* categories contain as few as 5 students in a wave, so they cannot be estimated reliably.
-* (The full categories are used as a check in A9.)
+* Version with the rare categories merged: works / does not work / unknown
 gen emo3 = cond(employmo == 1, 1, cond(employmo == 2, 2, 3))
 gen efa3 = cond(employfa == 1, 1, cond(employfa == 2, 2, 3))
-* Parents' occupation exists in 2014 only, so it is used only as an extra check for 2014
+* Parents' occupation exists in 2014 only, so it can be used only as an extra check for 2014
 gen father_occ = mfses
 gen mother_occ = mmses
 replace father_occ = 99 if missing(father_occ)
@@ -182,9 +177,8 @@ replace mother_occ = 99 if missing(mother_occ)
 
 * 1.6 Treatment (i): sibling gender
 gen nsib      = brothers + sisters
-gen sibsample = inrange(nsib, 1, 4)           // only children have no siblings to compare; 5+ is rare
+gen sibsample = inrange(nsib, 1, 4)           // only-childs have no siblings to compare; 5+ is rare
 gen share_bro = brothers / nsib if sibsample
-gen any_bro   = (brothers > 0) if sibsample      // alternative definition: at least one brother
 label var share_bro "Share of brothers among siblings"
 
 * 1.7 Treatment (ii): class gender composition
@@ -205,7 +199,7 @@ foreach v in talkmother talkfather beenbullied likeschool studtogether studhelpf
 }
 egen z_studsupport = rowmean(z_studtogether z_studhelpful z_studaccept)
 
-* 1.9 The two estimation samples (the same students are used in every column)
+* 1.9 The two estimation samples (ensure the students have the same data)
 gen s_sib = sibsample & !missing(girl, age_grp, fas_z, share_bro)
 gen s_cls = !missing(girl, age_grp, fas_z, share_girls_cls, n_class)
 
@@ -218,13 +212,10 @@ tab wave s_sib
 tab wave s_cls
 
 * Useful macros for controls used in the regressions henceforth
-* Parents' employment: merged categories (works / does not work / unknown). To use all the
-* original categories instead, change the next line to: global EMP "i.emo i.efa"
-global EMP     "i.emo3 i.efa3"
 global SIB_MIN "girl i.age_grp i.nsib"
-global SIB     "$SIB_MIN fas_z $EMP"
+global SIB     "$SIB_MIN fas_z i.emo i.efa"
 global CLS_MIN "girl i.age_grp c.n_class"
-global CLS     "$CLS_MIN fas_z $EMP"
+global CLS     "$CLS_MIN fas_z i.emo i.efa"
 
 
 *** PART 2. DESCRIPTIVE STATISTICS (Table 1) ***
@@ -239,14 +230,13 @@ esttab D2014 D2018 D2022 using "$out/tables/T1_descriptives.tex", replace bookta
 esttab D2014 D2018 D2022, cells("count mean(fmt(2)) sd(fmt(2))") mtitles("2014" "2018" "2022") nonumber
 
 
-*** PART 3. IS EACH TREATMENT AS GOOD AS RANDOMLY ASSIGNED? (BALANCE TESTS) ***
-* T2 (siblings) and T3 (classes) each put all waves in one table; simulation figures follow.
+*** PART 3. RANDOM ASSIGNMENT BALANCE TESTS ***
+*=================WE PROBABLY WANT TO MERGE 3.1 and 3.2 INTO ONE TABLE IN THE APPENDIX IT WOULD LOOK NICER.=================================
 
 ** 3.1 Sibling gender (2014 and 2022) **
 * If sibling gender were random: (a) about 51.2% of babies are boys, so the average
 * number of brothers should be about 0.512 times the number of siblings; (b) it should
 * not depend on the student's own sex or on family characteristics.
-eststo clear
 foreach w in 2014 2022 {
     di _n "---- Sibling gender, wave `w' ----"
     forvalues n = 1/4 {
@@ -260,38 +250,35 @@ foreach w in 2014 2022 {
     drop one_sib_bro
 
     * Does the share of brothers predict other (predetermined) characteristics?
+    eststo clear
     foreach x in girl fas_z momwork dadwork {
-        eststo B`w'_`x': quietly reg `x' share_bro i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
+        eststo B_`x': quietly reg `x' share_bro i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
     }
     if `w' == 2014 {
         foreach x in mfses mmses {
-            eststo B`w'_`x': quietly reg `x' share_bro i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
+            eststo B_`x': quietly reg `x' share_bro i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
         }
     }
+    esttab B_* using "$out/tables/T2_balance_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+        title("Balance test: share of brothers, `w'")
     di "Joint test: do own sex, affluence and parents' work predict the share of brothers?"
     quietly reg share_bro girl fas_z momwork dadwork i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
     testparm girl fas_z momwork dadwork
 }
-* Each column is a separate regression of the characteristic named at the top on the share of brothers
-esttab B2014_* B2022_* using "$out/tables/T2_balance_siblings.tex", replace `tex' keep(share_bro) ///
-    mtitles("2014 girl" "2014 affluence" "2014 mother works" "2014 father works" "2014 father occ." "2014 mother occ." ///
-            "2022 girl" "2022 affluence" "2022 mother works" "2022 father works") ///
-    title("Balance tests: share of brothers among siblings")
-esttab B2014_* B2022_*, `show' keep(share_bro) ///
-    mtitles("2014 girl" "2014 affl." "2014 mum works" "2014 dad works" "2014 dad occ." "2014 mum occ." ///
-            "2022 girl" "2022 affl." "2022 mum works" "2022 dad works")
 
 ** 3.2 Class gender composition (2014, 2018, 2022) **
 * If classes were formed at random: (a) family characteristics should not predict the
 * share of girls; (b) classes should differ in their share of girls by about as much as
 * random draws would (we simulate this below).
-eststo clear
 tempfile base pos gl
 foreach w in 2014 2018 2022 {
     di _n "---- Class composition, wave `w' ----"
+    eststo clear
     foreach x in fas_z momwork dadwork {
-        eststo K`w'_`x': quietly reg `x' share_girls_cls girl i.age_grp c.n_class if s_cls & wave == `w', vce(cluster classid)
+        eststo K_`x': quietly reg `x' share_girls_cls girl i.age_grp c.n_class if s_cls & wave == `w', vce(cluster classid)
     }
+    esttab K_* using "$out/tables/T3_balance_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+        title("Balance test: share of girls among classmates, `w'")
     di "Joint test: do affluence and parents' work predict the share of girls?"
     quietly reg share_girls_cls girl fas_z momwork dadwork i.age_grp c.n_class if s_cls & wave == `w', vce(cluster classid)
     testparm fas_z momwork dadwork
@@ -345,49 +332,57 @@ foreach w in 2014 2018 2022 {
         graph export "$out/figures/Fig1_class_balance_`w'.png", replace width(1200)
     restore
 }
-esttab K2014_* K2018_* K2022_* using "$out/tables/T3_balance_class.tex", replace `tex' keep(share_girls_cls) ///
-    mtitles("2014 affluence" "2014 mother works" "2014 father works" "2018 affluence" "2018 mother works" "2018 father works" ///
-            "2022 affluence" "2022 mother works" "2022 father works") ///
-    title("Balance tests: share of girls among classmates")
-esttab K2014_* K2018_* K2022_*, `show' keep(share_girls_cls) ///
-    mtitles("2014 affl." "2014 mum" "2014 dad" "2018 affl." "2018 mum" "2018 dad" "2022 affl." "2022 mum" "2022 dad")
 
 
 *** PART 4. HEADLINE RESULTS ***
-* Effects are in standard deviations of the outcome. Standard errors are clustered by class.
-* For each wave and outcome we run three models:
-*   (1) minimal controls   (2) HEADLINE specification   (3) HEADLINE + school-by-age-group FE
-eststo clear
+* Each table has three columns per outcome:
+*   (1) minimal controls   (2) HEADLINE specification   (3) HEADLINE + school-by-age FE
+* Standard errors are clustered by class. Effects are in standard deviations of the outcome.
 
-** 4.1 The models, wave by wave **
+** 4.1 Sibling gender, 2014 and 2022 **
 foreach w in 2014 2022 {
+    di _n "######## SIBLING GENDER, `w' ########"
+    eststo clear
     foreach y in complaints3 lifesat_z {
-        eststo m1s_`y'_`w': quietly reg `y' share_bro $SIB_MIN if s_sib & wave == `w', vce(cluster classid)
-        eststo m2s_`y'_`w': quietly reg `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
-        if "`y'" == "complaints3" di "Wave `w', siblings: smallest effect we could reliably detect (80% power), all sisters -> all brothers: " %5.3f 2.8*_se[share_bro]
-        eststo m3s_`y'_`w': quietly areg `y' share_bro girl i.nsib fas_z $EMP if s_sib & wave == `w', ///
+        eststo S1_`y': quietly reg `y' share_bro $SIB_MIN if s_sib & wave == `w', vce(cluster classid)
+        eststo S2_`y': quietly reg `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+        if "`y'" == "complaints3" di "Smallest effect we could reliably detect (80% power), all sisters -> all brothers: " %5.3f 2.8*_se[share_bro]
+        eststo S3_`y': quietly areg `y' share_bro girl i.nsib fas_z i.emo i.efa if s_sib & wave == `w', ///
             absorb(school_age) vce(cluster classid)
     }
+    esttab S*_complaints3 S*_lifesat_z using "$out/tables/T4_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+        mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)") ///
+        title("Sibling gender and mental health, `w'")
+    esttab S*_complaints3 S*_lifesat_z, `show' keep(share_bro) ///
+        mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)")
 }
+
+** 4.2 Class gender composition, 2014, 2018 and 2022 **
 foreach w in 2014 2018 2022 {
+    di _n "######## CLASS COMPOSITION, `w' ########"
+    eststo clear
     foreach y in complaints3 lifesat_z {
-        eststo m1c_`y'_`w': quietly reg `y' share_girls_cls $CLS_MIN if s_cls & wave == `w', vce(cluster classid)
-        eststo m2c_`y'_`w': quietly reg `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+        eststo C1_`y': quietly reg `y' share_girls_cls $CLS_MIN if s_cls & wave == `w', vce(cluster classid)
+        eststo C2_`y': quietly reg `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
         if "`y'" == "complaints3" {
             quietly summ share_girls_cls if e(sample)
-            di "Wave `w', classes: smallest effect we could reliably detect (80% power): " %5.3f 2.8*_se[share_girls_cls] ///
+            di "Smallest effect we could reliably detect (80% power): " %5.3f 2.8*_se[share_girls_cls] ///
                " for 0% -> 100% girls, or " %5.3f 2.8*_se[share_girls_cls]*r(sd) " for a one-standard-deviation change in the share"
         }
-        eststo m3c_`y'_`w': quietly areg `y' share_girls_cls girl c.n_class fas_z $EMP if s_cls & wave == `w', ///
+        eststo C3_`y': quietly areg `y' share_girls_cls girl c.n_class fas_z i.emo i.efa if s_cls & wave == `w', ///
             absorb(school_age) vce(cluster classid)
     }
+    esttab C*_complaints3 C*_lifesat_z using "$out/tables/T5_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+        mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)") ///
+        title("Class gender composition and mental health, `w'")
+    esttab C*_complaints3 C*_lifesat_z, `show' keep(share_girls_cls) ///
+        mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)")
 }
 
-** 4.2 Pooled models: do the waves tell the same story? **
-* "Wave-specific" models give one coefficient per wave. The test lines ask whether those
-* coefficients are equal. "Common effect" models force one coefficient across waves, which
-* uses all the data at once (more power) and is only appropriate when the test does not reject.
-* Wave dummies, and wave-specific own-sex effects, are included in all of them.
+** 4.3 Pooled models: do the waves tell the same story? **
+* The effect is allowed to differ by wave (one coefficient per wave). Wave dummies, and
+* wave-specific own-sex effects, are included. The "test" lines ask whether the wave
+* effects are equal; if they are not, report the wave-specific effects, not an average.
 gen bro_2014   = share_bro * (wave == 2014)
 gen bro_2022   = share_bro * (wave == 2022)
 gen girls_2014 = share_girls_cls * (wave == 2014)
@@ -395,90 +390,46 @@ gen girls_2018 = share_girls_cls * (wave == 2018)
 gen girls_2022 = share_girls_cls * (wave == 2022)
 
 di _n "######## POOLED MODELS ########"
+eststo clear
 foreach y in complaints3 lifesat_z {
-    eststo PS_`y':  quietly reg `y' bro_2014 bro_2022 i.wave##i.girl i.age_grp i.nsib fas_z $EMP ///
+    eststo PS_`y':  quietly reg `y' bro_2014 bro_2022 i.wave##i.girl i.age_grp i.nsib fas_z i.emo i.efa ///
         if s_sib & inlist(wave, 2014, 2022), vce(cluster classid)
     di "`y': sibling effect equal in 2014 and 2022?"
     test bro_2014 = bro_2022
-    eststo PSc_`y': quietly reg `y' share_bro i.wave##i.girl i.age_grp i.nsib fas_z $EMP ///
+    eststo PSc_`y': quietly reg `y' share_bro i.wave##i.girl i.age_grp i.nsib fas_z i.emo i.efa ///
         if s_sib & inlist(wave, 2014, 2022), vce(cluster classid)
-    eststo PC_`y':  quietly reg `y' girls_2014 girls_2018 girls_2022 i.wave##i.girl i.age_grp c.n_class fas_z $EMP ///
+    eststo PC_`y':  quietly reg `y' girls_2014 girls_2018 girls_2022 i.wave##i.girl i.age_grp c.n_class fas_z i.emo i.efa ///
         if s_cls, vce(cluster classid)
     di "`y': class-composition effect equal in all three waves?"
     test (girls_2014 = girls_2018) (girls_2018 = girls_2022)
-    eststo PCc_`y': quietly reg `y' share_girls_cls i.wave##i.girl i.age_grp c.n_class fas_z $EMP ///
+    eststo PCc_`y': quietly reg `y' share_girls_cls i.wave##i.girl i.age_grp c.n_class fas_z i.emo i.efa ///
         if s_cls, vce(cluster classid)
 }
-
-** 4.3 Main tables **
-* T4: sibling gender, headline specification, each wave and pooled (common effect)
-esttab m2s_complaints3_2014 m2s_complaints3_2022 PSc_complaints3 m2s_lifesat_z_2014 m2s_lifesat_z_2022 PSc_lifesat_z ///
-    using "$out/tables/T4_main_siblings.tex", replace `tex' keep(share_bro) ///
-    mtitles("Compl. 2014" "Compl. 2022" "Compl. pooled" "Life sat. 2014" "Life sat. 2022" "Life sat. pooled") ///
-    title("Sibling gender and mental health (headline specification)")
-esttab m2s_complaints3_2014 m2s_complaints3_2022 PSc_complaints3 m2s_lifesat_z_2014 m2s_lifesat_z_2022 PSc_lifesat_z, ///
-    `show' keep(share_bro) mtitles("Compl. 2014" "Compl. 2022" "Compl. pooled" "Life sat. 2014" "Life sat. 2022" "Life sat. pooled")
-
-* T5: class gender composition, headline specification, each wave and pooled (common effect)
-esttab m2c_complaints3_2014 m2c_complaints3_2018 m2c_complaints3_2022 PCc_complaints3 ///
-       m2c_lifesat_z_2014 m2c_lifesat_z_2018 m2c_lifesat_z_2022 PCc_lifesat_z ///
-    using "$out/tables/T5_main_class.tex", replace `tex' keep(share_girls_cls) ///
-    mtitles("Compl. 2014" "Compl. 2018" "Compl. 2022" "Compl. pooled" "Life sat. 2014" "Life sat. 2018" "Life sat. 2022" "Life sat. pooled") ///
-    title("Class gender composition and mental health (headline specification)")
-esttab m2c_complaints3_2014 m2c_complaints3_2018 m2c_complaints3_2022 PCc_complaints3 ///
-       m2c_lifesat_z_2014 m2c_lifesat_z_2018 m2c_lifesat_z_2022 PCc_lifesat_z, ///
-    `show' keep(share_girls_cls) mtitles("Compl. 2014" "Compl. 2018" "Compl. 2022" "Compl. pooled" ///
-    "Life sat. 2014" "Life sat. 2018" "Life sat. 2022" "Life sat. pooled")
-
-* T6: the same models comparing only students in the same school and age group
-esttab m3s_complaints3_2014 m3s_complaints3_2022 m3c_complaints3_2014 m3c_complaints3_2018 m3c_complaints3_2022 ///
-       m3s_lifesat_z_2014 m3s_lifesat_z_2022 m3c_lifesat_z_2014 m3c_lifesat_z_2018 m3c_lifesat_z_2022 ///
-    using "$out/tables/T6_within_school.tex", replace `tex' keep(share_bro share_girls_cls) ///
-    mtitles("Sib 2014" "Sib 2022" "Class 2014" "Class 2018" "Class 2022" "Sib 2014" "Sib 2022" "Class 2014" "Class 2018" "Class 2022") ///
-    title("Within-school comparison (school-by-age-group fixed effects); columns 1-5 complaints, 6-10 life satisfaction")
-esttab m3s_complaints3_2014 m3s_complaints3_2022 m3c_complaints3_2014 m3c_complaints3_2018 m3c_complaints3_2022 ///
-       m3s_lifesat_z_2014 m3s_lifesat_z_2022 m3c_lifesat_z_2014 m3c_lifesat_z_2018 m3c_lifesat_z_2022, ///
-    `show' keep(share_bro share_girls_cls) mtitles("C sib14" "C sib22" "C cls14" "C cls18" "C cls22" "L sib14" "L sib22" "L cls14" "L cls18" "L cls22")
+esttab PS_* PSc_* using "$out/tables/T6_pooled_siblings.tex", replace `tex' keep(bro_2014 bro_2022 share_bro) ///
+    title("Pooled models: sibling gender")
+esttab PC_* PCc_* using "$out/tables/T7_pooled_class.tex", replace `tex' keep(girls_2014 girls_2018 girls_2022 share_girls_cls) ///
+    title("Pooled models: class composition")
+esttab PS_* PSc_*, `show' keep(bro_2014 bro_2022 share_bro)
+esttab PC_* PCc_*, `show' keep(girls_2014 girls_2018 girls_2022 share_girls_cls)
 
 
-*** PART 5. APPENDIX ***
-* Everything below goes in the appendix. Each block checks that the headline results do not
-* depend on a modelling choice, or looks at subgroups (own sex, age) and possible channels.
+*** PART 5. APPENDIX CHECKS (none of these change the headline results) ***
+* THIS IS LARGELY GOING IN THE APPENDIX AND I HAVE TO ADMIT I DO NOT FULLY UNDERSTAND IT
 
-** A1. Build-up of the headline model, wave by wave (minimal -> headline -> within school) **
-foreach w in 2014 2022 {
-    esttab m1s_complaints3_`w' m2s_complaints3_`w' m3s_complaints3_`w' m1s_lifesat_z_`w' m2s_lifesat_z_`w' m3s_lifesat_z_`w' ///
-        using "$out/tables/A1_buildup_siblings_`w'.tex", replace `tex' keep(share_bro) ///
-        mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)") ///
-        title("Sibling gender, `w': (1) minimal, (2) headline, (3) headline + school-by-age FE")
-}
-foreach w in 2014 2018 2022 {
-    esttab m1c_complaints3_`w' m2c_complaints3_`w' m3c_complaints3_`w' m1c_lifesat_z_`w' m2c_lifesat_z_`w' m3c_lifesat_z_`w' ///
-        using "$out/tables/A1_buildup_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
-        mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)") ///
-        title("Class composition, `w': (1) minimal, (2) headline, (3) headline + school-by-age FE")
-}
-
-** A2. Pooled models with a separate effect for each wave **
-esttab PS_* using "$out/tables/A2_pooled_siblings.tex", replace `tex' keep(bro_2014 bro_2022) ///
-    title("Pooled model: sibling gender, effect by wave")
-esttab PC_* using "$out/tables/A2_pooled_class.tex", replace `tex' keep(girls_2014 girls_2018 girls_2022) ///
-    title("Pooled model: class composition, effect by wave")
-
-** A3. Both treatments in one regression (2014 and 2022) **
+** 5.1 Both treatments in one regression (2014 and 2022) **
 * The headline models study the two treatments separately because they involve different
 * samples and different problems. This checks that putting them together changes little.
 eststo clear
 foreach w in 2014 2022 {
     foreach y in complaints3 lifesat_z {
-        eststo J`w'_`y': quietly reg `y' share_bro share_girls_cls girl i.age_grp i.nsib c.n_class fas_z $EMP ///
+        eststo J`w'_`y': quietly reg `y' share_bro share_girls_cls girl i.age_grp i.nsib c.n_class fas_z i.emo i.efa ///
             if s_sib & s_cls & wave == `w', vce(cluster classid)
     }
 }
-esttab J* using "$out/tables/A3_joint_model.tex", replace `tex' keep(share_bro share_girls_cls) ///
+esttab J* using "$out/tables/A1_joint_model.tex", replace `tex' keep(share_bro share_girls_cls) ///
     title("Both treatments in one model")
 
-** A4. Robustness of the headline model **
+** 5.2 Robustness of the headline model **
 eststo clear
 foreach w in 2014 2018 2022 {
     * (a) complaints index with sleep difficulties added
@@ -489,72 +440,71 @@ foreach w in 2014 2018 2022 {
     eststo Rb_c`w': quietly reg complaints3 share_girls_cls $CLS if s_cls & wave == `w', vce(cluster school)
     * (c) class share based on at least 8 respondents (less noisy)
     eststo Rc_c`w': quietly reg complaints3 share_girls_cls $CLS if s_cls & n_class >= 8 & wave == `w', vce(cluster classid)
-    * (e) sibling gender defined as "at least one brother" instead of the share
-    if `w' != 2018 eststo Re_s`w': quietly reg complaints3 any_bro $SIB if s_sib & wave == `w', vce(cluster classid)
 }
 * (d) 2014 only: add father's and mother's occupation
 eststo Rd_s2014: quietly reg complaints3 share_bro $SIB i.father_occ i.mother_occ if s_sib & wave == 2014, vce(cluster classid)
 eststo Rd_c2014: quietly reg complaints3 share_girls_cls $CLS i.father_occ i.mother_occ if s_cls & wave == 2014, vce(cluster classid)
-esttab Ra_* Rb_* Rc_* Rd_* Re_* using "$out/tables/A4_robustness.tex", replace `tex' keep(share_bro share_girls_cls any_bro) ///
-    title("Robustness: (a) 4-item index, (b) school clusters, (c) classes with 8+ respondents, (d) parents' occupation, (e) any brother")
+esttab Ra_* Rb_* Rc_* Rd_* using "$out/tables/A2_robustness.tex", replace `tex' keep(share_bro share_girls_cls) ///
+    title("Robustness: (a) 4-item index, (b) school clusters, (c) classes with 8+ respondents, (d) parents' occupation, 2014")
 
-** A5. Do effects differ by own sex? **
-* The main coefficient is the effect for boys; the "girl#" line is how much the effect for
-* girls differs. "lincom" prints the total effect for girls.
-eststo clear
+** 5.3 Do effects differ by own sex or by age group? **
+* Own sex: the main coefficient is the effect for boys; the "girl#" line is how much
+* the effect for girls differs. "lincom" prints the total effect for girls.
 foreach w in 2014 2018 2022 {
     di _n "######## EFFECTS BY OWN SEX, `w' ########"
+    eststo clear
     foreach y in complaints3 lifesat_z {
         if `w' != 2018 {
-            eststo HS`w'_`y': quietly reg `y' c.share_bro##i.girl i.age_grp i.nsib fas_z $EMP ///
+            eststo HS_`y': quietly reg `y' c.share_bro##i.girl i.age_grp i.nsib fas_z i.emo i.efa ///
                 if s_sib & wave == `w', vce(cluster classid)
             di "Sibling gender, `y': effect for girls"
             lincom share_bro + 1.girl#c.share_bro
         }
-        eststo HC`w'_`y': quietly reg `y' c.share_girls_cls##i.girl i.age_grp c.n_class fas_z $EMP ///
+        eststo HC_`y': quietly reg `y' c.share_girls_cls##i.girl i.age_grp c.n_class fas_z i.emo i.efa ///
             if s_cls & wave == `w', vce(cluster classid)
         di "Class composition, `y': effect for girls"
         lincom share_girls_cls + 1.girl#c.share_girls_cls
     }
+    if `w' != 2018 {
+        esttab HS_* using "$out/tables/A3_by_sex_siblings_`w'.tex", replace `tex' keep(share_bro 1.girl#c.share_bro) ///
+            title("Sibling gender by own sex, `w'")
+    }
+    esttab HC_* using "$out/tables/A3_by_sex_class_`w'.tex", replace `tex' keep(share_girls_cls 1.girl#c.share_girls_cls) ///
+        title("Class composition by own sex, `w'")
 }
-esttab HS2014_* HS2022_* using "$out/tables/A5_by_sex_siblings.tex", replace `tex' keep(share_bro 1.girl#c.share_bro) ///
-    mtitles("Compl. 2014" "Life sat. 2014" "Compl. 2022" "Life sat. 2022") title("Sibling gender by own sex")
-esttab HC2014_* HC2018_* HC2022_* using "$out/tables/A5_by_sex_class.tex", replace `tex' keep(share_girls_cls 1.girl#c.share_girls_cls) ///
-    mtitles("Compl. 2014" "Life sat. 2014" "Compl. 2018" "Life sat. 2018" "Compl. 2022" "Life sat. 2022") ///
-    title("Class composition by own sex")
 
-** A6. Do effects differ by age group? (not done for 2018: only 289 students there are aged 13) **
+* Age group (not done for 2018: only 289 students there are aged 13)
 foreach w in 2014 2022 {
     di _n "######## EFFECTS BY AGE GROUP, `w' ########"
     eststo clear
     foreach y in complaints3 lifesat_z {
         forvalues g = 1/3 {
-            eststo AS`g'_`y': quietly reg `y' share_bro girl i.nsib fas_z $EMP ///
+            eststo AS`g'_`y': quietly reg `y' share_bro girl i.nsib fas_z i.emo i.efa ///
                 if s_sib & wave == `w' & age_grp == `g', vce(cluster classid)
         }
-        quietly reg `y' c.share_bro##i.age_grp girl i.nsib fas_z $EMP if s_sib & wave == `w', vce(cluster classid)
+        quietly reg `y' c.share_bro##i.age_grp girl i.nsib fas_z i.emo i.efa if s_sib & wave == `w', vce(cluster classid)
         di "Sibling gender, `y': do the three age effects differ?"
         testparm i.age_grp#c.share_bro
     }
-    esttab AS* using "$out/tables/A6_by_age_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+    esttab AS* using "$out/tables/A4_by_age_siblings_`w'.tex", replace `tex' keep(share_bro) ///
         mtitles("Compl. 11" "Compl. 13" "Compl. 15" "Life sat. 11" "Life sat. 13" "Life sat. 15") ///
         title("Sibling gender by age group, `w'")
     eststo clear
     foreach y in complaints3 lifesat_z {
         forvalues g = 1/3 {
-            eststo AC`g'_`y': quietly reg `y' share_girls_cls girl c.n_class fas_z $EMP ///
+            eststo AC`g'_`y': quietly reg `y' share_girls_cls girl c.n_class fas_z i.emo i.efa ///
                 if s_cls & wave == `w' & age_grp == `g', vce(cluster classid)
         }
-        quietly reg `y' c.share_girls_cls##i.age_grp girl c.n_class fas_z $EMP if s_cls & wave == `w', vce(cluster classid)
+        quietly reg `y' c.share_girls_cls##i.age_grp girl c.n_class fas_z i.emo i.efa if s_cls & wave == `w', vce(cluster classid)
         di "Class composition, `y': do the three age effects differ?"
         testparm i.age_grp#c.share_girls_cls
     }
-    esttab AC* using "$out/tables/A6_by_age_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+    esttab AC* using "$out/tables/A4_by_age_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
         mtitles("Compl. 11" "Compl. 13" "Compl. 15" "Life sat. 11" "Life sat. 13" "Life sat. 15") ///
         title("Class composition by age group, `w'")
 }
 
-** A7. Possible channels (mechanisms) **
+** 5.4 Possible channels (mechanisms) **
 * For all five outcomes, HIGHER = WORSE (harder to talk to a parent, more bullied,
 * less classmate support, likes school less), so a negative coefficient is "better".
 foreach w in 2014 2018 2022 {
@@ -564,14 +514,14 @@ foreach w in 2014 2018 2022 {
         eststo MC_`m': quietly reg `m' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
     }
     if `w' != 2018 {
-        esttab MS_* using "$out/tables/A7_mechanisms_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+        esttab MS_* using "$out/tables/A5_mechanisms_siblings_`w'.tex", replace `tex' keep(share_bro) ///
             title("Channels: sibling gender, `w'")
     }
-    esttab MC_* using "$out/tables/A7_mechanisms_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+    esttab MC_* using "$out/tables/A5_mechanisms_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
         title("Channels: class composition, `w'")
 }
 
-** A8. Ordered probit **
+** 5.5 Ordered probit **
 * Ordinary regression treats answers such as "never ... every day" as equally spaced numbers.
 * Ordered probit only uses their order. If both agree, the equal-spacing assumption is not
 * driving the results. It needs whole-number answers, so it is run on the three symptom
@@ -582,7 +532,7 @@ foreach w in 2014 2022 {
         eststo ols_`y': quietly reg `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
         eststo oprobit_`y': quietly oprobit `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
     }
-    esttab ols_* oprobit_* using "$out/tables/A8_oprobit_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+    esttab ols_* oprobit_* using "$out/tables/A6_oprobit_siblings_`w'.tex", replace `tex' keep(share_bro) ///
         title("Sibling gender: OLS and ordered probit, `w'")
     quietly oprobit rev_feellow share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
     di "Wave `w': change in the probability of feeling low EVERY DAY, all sisters -> all brothers:"
@@ -594,17 +544,16 @@ foreach w in 2014 2018 2022 {
         eststo ols_`y': quietly reg `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
         eststo oprobit_`y': quietly oprobit `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
     }
-    esttab ols_* oprobit_* using "$out/tables/A8_oprobit_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+    esttab ols_* oprobit_* using "$out/tables/A6_oprobit_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
         title("Class composition: OLS and ordered probit, `w'")
     quietly oprobit rev_feellow share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
     di "Wave `w': change in the probability of feeling low EVERY DAY, 0% -> 100% girls:"
     margins, dydx(share_girls_cls) predict(outcome(5))
 }
 
-** A9. Small categories (these can make estimates unstable) **
+** 5.6 Small categories (these can make estimates unstable) **
 * Some answer categories contain very few students. Here is how many, and a check that the
-* headline results survive when they are handled differently (if you switched $EMP above,
-* check (a) uses the other version).
+* headline results survive when the small categories are merged or removed.
 di _n "######## SMALL-CATEGORY COUNTS ########"
 di "Parents' employment (categories 3, 4 and 9 are small): mother, then father"
 tab emo wave
@@ -618,21 +567,21 @@ tab age_grp wave
 
 eststo clear
 foreach w in 2014 2022 {
-    * (a) parents' employment with ALL the original categories instead of the merged ones
-    eststo Qa_s`w': quietly reg complaints3 share_bro girl i.age_grp i.nsib fas_z i.emo i.efa if s_sib & wave == `w', vce(cluster classid)
+    * (a) parents' employment with the small categories merged (works / does not work / unknown)
+    eststo Qa_s`w': quietly reg complaints3 share_bro girl i.age_grp i.nsib fas_z i.emo3 i.efa3 if s_sib & wave == `w', vce(cluster classid)
     * (b) families with at most 3 siblings (drops the small group with 4)
     eststo Qb_s`w': quietly reg complaints3 share_bro $SIB if s_sib & nsib <= 3 & wave == `w', vce(cluster classid)
     * (c) life satisfaction without students who answered 0
     eststo Qc_s`w': quietly reg lifesat_z share_bro $SIB if s_sib & lifesat > 0 & wave == `w', vce(cluster classid)
 }
-esttab Q* using "$out/tables/A9_small_categories_siblings.tex", replace `tex' keep(share_bro) ///
+esttab Q* using "$out/tables/A7_small_categories_siblings.tex", replace `tex' keep(share_bro) ///
     title("Small-category checks: sibling gender")
 eststo clear
 foreach w in 2014 2018 2022 {
-    eststo Qa_c`w': quietly reg complaints3 share_girls_cls girl i.age_grp c.n_class fas_z i.emo i.efa if s_cls & wave == `w', vce(cluster classid)
+    eststo Qa_c`w': quietly reg complaints3 share_girls_cls girl i.age_grp c.n_class fas_z i.emo3 i.efa3 if s_cls & wave == `w', vce(cluster classid)
     eststo Qc_c`w': quietly reg lifesat_z share_girls_cls $CLS if s_cls & lifesat > 0 & wave == `w', vce(cluster classid)
 }
-esttab Q* using "$out/tables/A9_small_categories_class.tex", replace `tex' keep(share_girls_cls) ///
+esttab Q* using "$out/tables/A7_small_categories_class.tex", replace `tex' keep(share_girls_cls) ///
     title("Small-category checks: class composition")
 
 di _n "Finished. Tables are in $out/tables, figures in $out/figures."

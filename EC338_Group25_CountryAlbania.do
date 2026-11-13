@@ -107,12 +107,15 @@ use `w2014', clear // 'w' for wave, 'v' for variable. Will try to keep consisten
 append using `w2018' `w2022'
 
 * 1.2 Identifiers: a class number that is unique across waves, and a school number.
+* There may be a better way to do this but I was proud of this way.
+* I'm not proud of HBSC repeating school numbers within waves, why?
 gen long classid = wave*100000 + id3
 * The school code is municipality x school number. A few pupils have a different school
 * code from their classmates, so each class is given its most common school code.
-* I don't know what causes this I sure hope it doesn't mean classes are not within school.
+* This only happens in 2014 and 2018 suggesting it was a misreading issue or typo that got
+* fixed with later iterations of the questionnaire.
 gen school_code = id1*1000 + id2
-bys classid: egen school_mode = mode(school_code), minmode // tiebreaks with minimum, at some point I'll change to see if this affects results, doubt it.
+bys classid: egen school_mode = mode(school_code), minmode // tiebreaks with minimum code
 egen school = group(wave school_mode)
 
 * 1.3 The student's own characteristics
@@ -184,8 +187,8 @@ label var share_bro "Share of brothers among siblings"
 * n_class is the number of students from the class WE observe (not the real class size).
 bys classid: egen n_class   = count(girl)
 bys classid: egen girls_cls = total(girl)
-* Share of girls among the OTHER students in the class (the student herself or himself is
-* left out), only for classes with at least 5 respondents.
+* Share of girls among the OTHER students in the class (the student themself is left out),
+* only for classes with at least 5 respondents.
 gen share_girls_cls = (girls_cls - girl) / (n_class - 1) if n_class >= 5 & !missing(girl)
 label var share_girls_cls "Share of girls among classmates"
 

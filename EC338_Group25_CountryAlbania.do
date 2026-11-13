@@ -31,8 +31,8 @@ clear all
 set more off
 
 *---- Folders: change these two lines, nothing else needs editing -----------------
-global raw "C:/Users/zedbe/Downloads/Allrounds_STATA_v8_25"          // folder with the original HBSC .dta files
-global out "C:/Users/zedbe/Downloads/Allrounds_STATA_v8_25/results"   // results go here (created if missing)
+global raw "C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1"          // folder with the original HBSC .dta files
+global out "C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results"  // results go here (created if missing)
 *----------------------------------------------------------------------------------
 
 cap mkdir "$out"
@@ -40,9 +40,9 @@ cap mkdir "$out/tables"
 cap mkdir "$out/figures"
 cap log close _all
 log using "$out/EC338_Group25_CountryAlbania.log", replace text    // if Stata says the log is locked, close it in other programs first
-set seed 338                                                         // makes the random-class simulation repeatable
+set seed 338                                                       // makes the random-class simulation repeatable
 cap which esttab
-if _rc ssc install estout, replace                                   // package that writes the tables
+if _rc ssc install estout, replace                                 // package that writes the tables
 
 * How the tables are printed: "show" is for the log, "tex" is for the LaTeX files.
 local show "se b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) stats(N, fmt(0))"
@@ -60,7 +60,7 @@ local file2014 "HBSC2014OAed2.0"
 local file2018 "HBSC2018OAed1.1"
 local file2022 "HBSC2022OAed1.0"
 
-* The variables we keep from every wave
+* The variables we keep from every wave. Suggest more.
 local keepvars wave id1 id2 id3 sex agecat grade brothers sisters                ///
     feellow irritable nervous sleepdifficulty lifesat                              ///
     fasfamcar fasbedroom fascomputers fasbathroom fasdishwash fasholidays          ///
@@ -72,15 +72,12 @@ foreach w in 2014 2018 2022 {
     use "$raw/`file`w''.dta", clear
 
     * make all variable names lower case so the waves match
-    foreach v of varlist _all {
-        local lowername = lower("`v'")
-        if "`v'" != "`lowername'" cap rename `v' `lowername'
-    }
-    cap rename sleepdificulty sleepdifficulty      // the original files misspell this variable
+	rename *, lower
+	
+    cap rename sleepdificulty sleepdifficulty      // the original files misspell this variable i kid you not
 
-    * keep only Albania (found by the country label, so no code number is needed)
-    decode countryno, gen(country_name)
-    keep if regexm(lower(country_name), "alban")
+    * keep only Albania, same no in each wave
+	keep if countryno == 8000
     gen wave = `w'
 
     * Siblings living in the student's main home. The variable names differ by wave,
@@ -94,11 +91,11 @@ foreach w in 2014 2018 2022 {
         gen sisters  = sisternum
     }
     else {
-        gen brothers = .
+        gen brothers = . // this is how you code/create missing values in stata, will use a lot.
         gen sisters  = .
     }
 
-    * A variable that a wave does not have is created empty, so the waves can be stacked
+    * A variable that a wave does not have is created empty, so the waves can be stacked without data spilling into the wrong columns.
     foreach v of local keepvars {
         cap confirm variable `v'
         if _rc gen `v' = .
@@ -106,15 +103,16 @@ foreach w in 2014 2018 2022 {
     keep `keepvars'
     save `w`w'', replace
 }
-use `w2014', clear
+use `w2014', clear // 'w' for wave, 'v' for variable. Will try to keep consistent placeholders.
 append using `w2018' `w2022'
 
 * 1.2 Identifiers: a class number that is unique across waves, and a school number.
 gen long classid = wave*100000 + id3
 * The school code is municipality x school number. A few pupils have a different school
 * code from their classmates, so each class is given its most common school code.
+* I don't know what causes this I sure hope it doesn't mean classes are not within school.
 gen school_code = id1*1000 + id2
-bys classid: egen school_mode = mode(school_code), minmode
+bys classid: egen school_mode = mode(school_code), minmode // tiebreaks with minimum, at some point I'll change to see if this affects results, doubt it.
 egen school = group(wave school_mode)
 
 * 1.3 The student's own characteristics
@@ -170,7 +168,7 @@ gen dadwork = (employfa == 1) if inlist(employfa, 1, 2)
 * Version with the rare categories merged: works / does not work / unknown
 gen emo3 = cond(employmo == 1, 1, cond(employmo == 2, 2, 3))
 gen efa3 = cond(employfa == 1, 1, cond(employfa == 2, 2, 3))
-* Parents' occupation exists in 2014 only, so it is used only as an extra check for 2014
+* Parents' occupation exists in 2014 only, so it can be used only as an extra check for 2014
 gen father_occ = mfses
 gen mother_occ = mmses
 replace father_occ = 99 if missing(father_occ)
@@ -178,7 +176,7 @@ replace mother_occ = 99 if missing(mother_occ)
 
 * 1.6 Treatment (i): sibling gender
 gen nsib      = brothers + sisters
-gen sibsample = inrange(nsib, 1, 4)           // only children have no siblings to compare; 5+ is rare
+gen sibsample = inrange(nsib, 1, 4)           // only-childs have no siblings to compare; 5+ is rare
 gen share_bro = brothers / nsib if sibsample
 label var share_bro "Share of brothers among siblings"
 
@@ -200,7 +198,7 @@ foreach v in talkmother talkfather beenbullied likeschool studtogether studhelpf
 }
 egen z_studsupport = rowmean(z_studtogether z_studhelpful z_studaccept)
 
-* 1.9 The two estimation samples (the same students are used in every column)
+* 1.9 The two estimation samples (ensure the students have the same data)
 gen s_sib = sibsample & !missing(girl, age_grp, fas_z, share_bro)
 gen s_cls = !missing(girl, age_grp, fas_z, share_girls_cls, n_class)
 
@@ -212,7 +210,7 @@ di _n "Students in the sibling analysis / class analysis, by wave:"
 tab wave s_sib
 tab wave s_cls
 
-* Controls used in the regressions below
+* Useful macros for controls used in the regressions henceforth
 global SIB_MIN "girl i.age_grp i.nsib"
 global SIB     "$SIB_MIN fas_z i.emo i.efa"
 global CLS_MIN "girl i.age_grp c.n_class"
@@ -234,8 +232,9 @@ esttab D2014 D2018 D2022, cells("count mean(fmt(2)) sd(fmt(2))") mtitles("2014" 
 
 
 *==============================================================================
-* PART 3. IS EACH TREATMENT AS GOOD AS RANDOMLY ASSIGNED?
+* PART 3. RANDOM ASSIGNMENT BALANCE TESTS
 *==============================================================================
+*WE PROBABLY WANT TO MERGE 3.1 and 3.2 INTO ONE TABLE IN THE APPENDIX IT WOULD LOOK NICER.
 
 *---- 3.1 Sibling gender (2014 and 2022) -----------------------------------------
 * If sibling gender were random: (a) about 51.2% of babies are boys, so the average
@@ -422,6 +421,7 @@ esttab PC_* PCc_*, `show' keep(girls_2014 girls_2018 girls_2022 share_girls_cls)
 *==============================================================================
 * PART 5. APPENDIX CHECKS (none of these change the headline results)
 *==============================================================================
+* THIS IS LARGELY GOING IN THE APPENDIX AND I HAVE TO ADMIT I DO NOT FULLY UNDERSTAND IT
 
 *---- 5.1 Both treatments in one regression (2014 and 2022) ---------------------------
 * The headline models study the two treatments separately because they involve different

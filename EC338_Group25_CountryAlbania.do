@@ -635,5 +635,70 @@ foreach w in 2014 2018 2022 {
 esttab Q* using "$out/tables/A9_small_categories_class.tex", replace `tex' keep(share_girls_cls) ///
     title("Small-category checks: class composition")
 
+
+** WITHIN-SCHOOL RANDOMISATION TEST (500 draws per wave)
+
+tempfile ws_original ws_positions ws_genders ws_results
+tempname ws_handle
+
+quietly {
+    postfile `ws_handle' int wave double actual_sd simulated_sd ///
+        p_upper p_lower using `ws_results', replace
+
+    foreach w in 2014 2018 2022 {
+        preserve
+            keep if wave == `w' & n_class >= 5 ///
+                & !missing(girl, age_grp, school_age, classid)
+            keep classid school_age girl
+            save `ws_original', replace
+
+            collapse (mean) girls_share = girl, by(classid)
+            summarize girls_share
+            local ws_actual = r(sd)
+
+            use `ws_original', clear
+            sort school_age classid
+            by school_age: gen slot = _n
+            keep school_age classid slot
+            save `ws_positions', replace
+
+            use `ws_original', clear
+            keep school_age girl
+            save `ws_genders', replace
+
+            local ws_sum = 0
+            local ws_above = 0
+            local ws_below = 0
+            forvalues r = 1/500 {
+                use `ws_genders', clear
+                gen double random_number = runiform()
+                sort school_age random_number
+                by school_age: gen slot = _n
+                merge 1:1 school_age slot using `ws_positions', keep(match) nogen
+                collapse (mean) girls_share = girl, by(classid)
+                summarize girls_share
+
+                local ws_sim = r(sd)
+                local ws_sum = `ws_sum' + `ws_sim'
+                if `ws_sim' >= `ws_actual' local ws_above = `ws_above' + 1
+                if `ws_sim' <= `ws_actual' local ws_below = `ws_below' + 1
+            }
+
+            local ws_mean = `ws_sum' / 500
+            local ws_hi = (`ws_above' + 1) / 501
+            local ws_lo = (`ws_below' + 1) / 501
+            post `ws_handle' (`w') (`ws_actual') (`ws_mean') (`ws_hi') (`ws_lo')
+        restore
+    }
+    postclose `ws_handle'
+}
+
+preserve
+quietly use `ws_results', clear
+format actual_sd simulated_sd p_upper p_lower %7.4f
+di _n "WITHIN-SCHOOL RANDOMISATION RESULTS (500 simulations per wave)"
+list wave actual_sd simulated_sd p_upper p_lower, noobs clean abbreviate(20)
+restore
+
 di _n "Finished. Tables are in $out/tables, figures in $out/figures."
 log close

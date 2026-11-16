@@ -1,0 +1,1710 @@
+-------------------------------------------------------------------------------------------------------------------------------
+      name:  <unnamed>
+       log:  C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/EC338_Group25_CountryAlbania.log
+  log type:  text
+ opened on:  16 Nov 2026, 03:44:57
+
+. set seed 338                                                         // makes the random-class simulation repeatable
+
+. cap which esttab
+
+. if _rc ssc install estout, replace                                   // package that writes the tables
+
+. 
+. * How the tables are printed: "show" is for the log, "tex" is for the LaTeX files.
+. local show "se b(3) se(3) star(* 0.10 ** 0.05 *** 0.01) stats(N, fmt(0))"
+
+. local tex  "`show' booktabs"
+
+. 
+. 
+. *** PART 1. BUILD THE DATASET ***
+. 
+. * 1.1 Take Albania out of each original file, rename the variables so the three
+. *     waves match, and stack the waves into one dataset (one row per student).
+. 
+. local file2014 "HBSC2014OAed2.0"
+
+. local file2018 "HBSC2018OAed1.1"
+
+. local file2022 "HBSC2022OAed1.0"
+
+. 
+. * The variables we keep from every wave
+. local keepvars wave id1 id2 id3 sex agecat grade brothers sisters                ///
+>     feellow irritable nervous sleepdifficulty lifesat                              ///
+>     fasfamcar fasbedroom fascomputers fasbathroom fasdishwash fasholidays          ///
+>     employfa employmo mfses mmses                                                  ///
+>     talkmother talkfather beenbullied studtogether studhelpful studaccept likeschool
+
+. 
+. tempfile w2014 w2018 w2022
+
+. foreach w in 2014 2018 2022 {
+  2.     use "$raw/`file`w''.dta", clear
+  3. 
+.     * make all variable names lower case so the waves match
+.     rename *, lower
+  4. 
+.     cap rename sleepdificulty sleepdifficulty      // the original files misspell this variable
+  5. 
+.     * keep only Albania (its country code is 8000 in every wave)
+.     keep if countryno == 8000
+  6.     gen wave = `w'
+  7. 
+.     * Siblings living in the student's main home. The variable names differ by wave,
+.     * and the 2018 survey did not ask the question at all.
+.     if `w' == 2014 {
+  8.         gen brothers = brothershome1
+  9.         gen sisters  = sistershome1
+ 10.     }
+ 11.     else if `w' == 2022 {
+ 12.         gen brothers = brothernum
+ 13.         gen sisters  = sisternum
+ 14.     }
+ 15.     else {
+ 16.         gen brothers = .         // a dot is how Stata writes a missing value; we use it a lot
+ 17.         gen sisters  = .
+ 18.     }
+ 19. 
+.     * A variable that a wave does not have is created empty, so the waves can be stacked
+.     * without data spilling into the wrong columns.
+.     foreach v of local keepvars {
+ 20.         cap confirm variable `v'
+ 21.         if _rc gen `v' = .
+ 22.     }
+ 23.     keep `keepvars'
+ 24.     save `w`w'', replace
+ 25. }
+(214,786 observations deleted)
+(378 missing values generated)
+(378 missing values generated)
+(file C:\Users\zedbe\AppData\Local\Temp\ST_4b38_000001.tmp not found)
+file C:\Users\zedbe\AppData\Local\Temp\ST_4b38_000001.tmp saved as .dta format
+(242,332 observations deleted)
+(1,765 missing values generated)
+(1,765 missing values generated)
+(1,765 missing values generated)
+(1,765 missing values generated)
+(file C:\Users\zedbe\AppData\Local\Temp\ST_4b38_000002.tmp not found)
+file C:\Users\zedbe\AppData\Local\Temp\ST_4b38_000002.tmp saved as .dta format
+(278,413 observations deleted)
+(380 missing values generated)
+(398 missing values generated)
+(5,454 missing values generated)
+(5,454 missing values generated)
+(file C:\Users\zedbe\AppData\Local\Temp\ST_4b38_000003.tmp not found)
+file C:\Users\zedbe\AppData\Local\Temp\ST_4b38_000003.tmp saved as .dta format
+
+. use `w2014', clear   // 'w' for wave, 'v' for variable: we keep these placeholders consistent
+
+. append using `w2018' `w2022'
+(label talkmother already defined)
+(label talkfather already defined)
+(label employmo already defined)
+(label employfa already defined)
+(label beenbullied already defined)
+(label studaccept already defined)
+(label studhelpful already defined)
+(label studtogether already defined)
+(label likeschool already defined)
+(label sleepdificulty already defined)
+(label nervous already defined)
+(label irritable already defined)
+(label feellow already defined)
+(label lifesat already defined)
+(label fasholidays already defined)
+(label fasdishwash already defined)
+(label fasbathroom already defined)
+(label fascomputers already defined)
+(label fasbedroom already defined)
+(label fasfamcar already defined)
+(label grade already defined)
+(label sex already defined)
+(label talkmother already defined)
+(label talkfather already defined)
+(label employmo already defined)
+(label employfa already defined)
+(label fasholidays already defined)
+(label fasdishwash already defined)
+(label fasbathroom already defined)
+(label fascomputers already defined)
+(label fasbedroom already defined)
+(label fasfamcar already defined)
+(label beenbullied already defined)
+(label studaccept already defined)
+(label studhelpful already defined)
+(label studtogether already defined)
+(label likeschool already defined)
+(label sleepdificulty already defined)
+(label nervous already defined)
+(label irritable already defined)
+(label feellow already defined)
+(label lifesat already defined)
+(label sex already defined)
+(label grade already defined)
+
+. 
+. * 1.2 Identifiers: a class number that is unique across waves, and a school number.
+. * HBSC reuses school numbers across municipalities, so the school code combines the two.
+. gen long classid = wave*100000 + id3
+
+. * A few pupils have a different school code from their classmates (this happens only in
+. * 2014 and 2018), so each class is given its most common school code.
+. gen school_code = id1*1000 + id2
+
+. bys classid: egen school_mode = mode(school_code), minmode   // ties go to the smaller code
+
+. egen school = group(wave school_mode)
+
+. 
+. * 1.3 The student's own characteristics
+. gen girl = (sex == 2) if !missing(sex)
+
+. * Age group: HBSC's own age category (11, 13, 15). Where it is missing, use school grade.
+. gen age_grp = agecat
+(221 missing values generated)
+
+. replace age_grp = grade if missing(agecat)
+(216 real changes made)
+
+. label define agelabel 1 "Age 11" 2 "Age 13" 3 "Age 15"
+
+. label values age_grp agelabel
+
+. egen school_age = group(school age_grp)       // used for the school-by-age-group comparison
+(5 missing values generated)
+
+. 
+. * 1.4 Outcomes
+. * The symptom questions run 1 = about every day ... 5 = rarely or never.
+. * Reverse them (6 minus the answer) so that HIGHER means MORE complaints.
+. foreach v in feellow irritable nervous sleepdifficulty {
+  2.     gen rev_`v' = 6 - `v'
+  3. }
+(392 missing values generated)
+(446 missing values generated)
+(453 missing values generated)
+(467 missing values generated)
+
+. * Main index: average of feeling low, irritable, nervous (needs at least 2 of the 3 answers)
+. egen items3 = rownonmiss(rev_feellow rev_irritable rev_nervous)
+
+. egen index3 = rowmean(rev_feellow rev_irritable rev_nervous)
+(285 missing values generated)
+
+. replace index3 = . if items3 < 2
+(148 real changes made, 148 to missing)
+
+. * Robustness index: also includes sleep difficulties (needs at least 3 of the 4 answers)
+. egen items4 = rownonmiss(rev_feellow rev_irritable rev_nervous rev_sleepdifficulty)
+
+. egen index4 = rowmean(rev_feellow rev_irritable rev_nervous rev_sleepdifficulty)
+(269 missing values generated)
+
+. replace index4 = . if items4 < 3
+(199 real changes made, 199 to missing)
+
+. * Standardise within each wave (mean 0, standard deviation 1)
+. bys wave: egen complaints3 = std(index3)
+(433 missing values generated)
+
+. bys wave: egen complaints4 = std(index4)
+(468 missing values generated)
+
+. bys wave: egen lifesat_z   = std(lifesat)
+(502 missing values generated)
+
+. label var complaints3 "Psychological complaints (3 items, z-score)"
+
+. label var complaints4 "Psychological complaints (4 items, z-score)"
+
+. label var lifesat_z   "Life satisfaction (z-score)"
+
+. 
+. * 1.5 Controls that exist in every wave
+. * Family affluence: average of six standardised items (car, own bedroom, computers,
+. * bathrooms, dishwasher, holidays). Needs at least 5 of the 6 answers.
+. foreach v in fasfamcar fasbedroom fascomputers fasbathroom fasdishwash fasholidays {
+  2.     bys wave: egen z_`v' = std(`v')
+  3. }
+(122 missing values generated)
+(149 missing values generated)
+(106 missing values generated)
+(110 missing values generated)
+(143 missing values generated)
+(109 missing values generated)
+
+. egen items_fas = rownonmiss(z_fasfamcar z_fasbedroom z_fascomputers z_fasbathroom z_fasdishwash z_fasholidays)
+
+. egen fas_z = rowmean(z_fasfamcar z_fasbedroom z_fascomputers z_fasbathroom z_fasdishwash z_fasholidays)
+(64 missing values generated)
+
+. replace fas_z = . if items_fas < 5
+(37 real changes made, 37 to missing)
+
+. label var fas_z "Family affluence (z-score)"
+
+. 
+. * Parents' employment: 1 = works, 2 = does not work, 3 or 4 = don't know / don't have.
+. * Missing answers are kept as their own category (9) so nobody is dropped.
+. gen emo = employmo
+(196 missing values generated)
+
+. gen efa = employfa
+(160 missing values generated)
+
+. replace emo = 9 if missing(emo)
+(196 real changes made)
+
+. replace efa = 9 if missing(efa)
+(160 real changes made)
+
+. gen momwork = (employmo == 1) if inlist(employmo, 1, 2)
+(258 missing values generated)
+
+. gen dadwork = (employfa == 1) if inlist(employfa, 1, 2)
+(413 missing values generated)
+
+. * Merged version used in the regressions: works / does not work / unknown. The full
+. * categories contain as few as 5 students in a wave, so they cannot be estimated reliably.
+. * (The full categories are used as a check in A9.)
+. gen emo3 = cond(employmo == 1, 1, cond(employmo == 2, 2, 3))
+
+. gen efa3 = cond(employfa == 1, 1, cond(employfa == 2, 2, 3))
+
+. * Parents' occupation exists in 2014 only, so it is used only as an extra check for 2014
+. gen father_occ = mfses
+(7,219 missing values generated)
+
+. gen mother_occ = mmses
+(7,219 missing values generated)
+
+. replace father_occ = 99 if missing(father_occ)
+(7,219 real changes made)
+
+. replace mother_occ = 99 if missing(mother_occ)
+(7,219 real changes made)
+
+. 
+. * 1.6 Treatment (i): sibling gender
+. gen nsib      = brothers + sisters
+(2,932 missing values generated)
+
+. gen sibsample = inrange(nsib, 1, 4)           // only children have no siblings to compare; 5+ is rare
+
+. gen share_bro = brothers / nsib if sibsample
+(3,663 missing values generated)
+
+. gen any_bro   = (brothers > 0) if sibsample      // alternative definition: at least one brother
+(3,663 missing values generated)
+
+. label var share_bro "Share of brothers among siblings"
+
+. 
+. * 1.7 Treatment (ii): class gender composition
+. * n_class is the number of students from the class WE observe (not the real class size).
+. bys classid: egen n_class   = count(girl)
+
+. bys classid: egen girls_cls = total(girl)
+
+. * Share of girls among the OTHER students in the class (the student themself is left out),
+. * only for classes with at least 5 respondents.
+. gen share_girls_cls = (girls_cls - girl) / (n_class - 1) if n_class >= 5 & !missing(girl)
+(599 missing values generated)
+
+. label var share_girls_cls "Share of girls among classmates"
+
+. 
+. * 1.8 Mechanism questions. Higher = worse for all of them (harder to talk to a parent,
+. * more bullied, LESS classmate support, likes school less). Standardised within wave.
+. replace talkmother = . if talkmother == 5      // 5 = "don't have or see this parent"
+(162 real changes made, 162 to missing)
+
+. replace talkfather = . if talkfather == 5
+(366 real changes made, 366 to missing)
+
+. foreach v in talkmother talkfather beenbullied likeschool studtogether studhelpful studaccept {
+  2.     bys wave: egen z_`v' = std(`v')
+  3. }
+(552 missing values generated)
+(686 missing values generated)
+(253 missing values generated)
+(88 missing values generated)
+(99 missing values generated)
+(130 missing values generated)
+(182 missing values generated)
+
+. egen z_studsupport = rowmean(z_studtogether z_studhelpful z_studaccept)
+(65 missing values generated)
+
+. 
+. * 1.9 The two estimation samples (the same students are used in every column)
+. gen s_sib = sibsample & !missing(girl, age_grp, fas_z, share_bro)
+
+. gen s_cls = !missing(girl, age_grp, fas_z, share_girls_cls, n_class)
+
+. 
+. compress
+  variable wave was float now int
+  variable brothers was float now byte
+  variable sisters was float now byte
+  variable school_code was float now int
+  variable school_mode was float now int
+  variable school was float now int
+  variable girl was float now byte
+  variable age_grp was float now byte
+  variable school_age was float now int
+  variable rev_feellow was float now byte
+  variable rev_irritable was float now byte
+  variable rev_nervous was float now byte
+  variable rev_sleepdifficulty was float now byte
+  variable items3 was float now byte
+  variable items4 was float now byte
+  variable items_fas was float now byte
+  variable emo was float now byte
+  variable efa was float now byte
+  variable momwork was float now byte
+  variable dadwork was float now byte
+  variable emo3 was float now byte
+  variable efa3 was float now byte
+  variable father_occ was float now byte
+  variable mother_occ was float now byte
+  variable nsib was float now byte
+  variable sibsample was float now byte
+  variable any_bro was float now byte
+  variable n_class was float now byte
+  variable girls_cls was float now byte
+  variable s_sib was float now byte
+  variable s_cls was float now byte
+  variable id1 was double now byte
+  variable id2 was double now int
+  variable id3 was double now int
+  variable sex was double now byte
+  variable grade was double now byte
+  variable agecat was double now byte
+  variable beenbullied was double now byte
+  variable talkfather was double now byte
+  variable talkmother was double now byte
+  variable feellow was double now byte
+  variable irritable was double now byte
+  variable nervous was double now byte
+  variable sleepdifficulty was double now byte
+  variable lifesat was double now byte
+  variable likeschool was double now byte
+  variable studtogether was double now byte
+  variable studhelpful was double now byte
+  variable studaccept was double now byte
+  variable employfa was double now byte
+  variable mfses was double now byte
+  variable employmo was double now byte
+  variable mmses was double now byte
+  variable fasfamcar was double now byte
+  variable fasbedroom was double now byte
+  variable fascomputers was double now byte
+  variable fasbathroom was double now byte
+  variable fasdishwash was double now byte
+  variable fasholidays was double now byte
+  (3,452,526 bytes saved)
+
+. save "$out/hbsc_albania_pooled.dta", replace
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/hbsc_albania_pooled.dta not found)
+file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/hbsc_albania_pooled.dta saved
+
+. di _n "Albania observations by wave:"
+
+Albania observations by wave:
+
+. tab wave
+
+       wave |      Freq.     Percent        Cum.
+------------+-----------------------------------
+       2014 |      5,024       41.04       41.04
+       2018 |      1,765       14.42       55.45
+       2022 |      5,454       44.55      100.00
+------------+-----------------------------------
+      Total |     12,243      100.00
+
+. di _n "Students in the sibling analysis / class analysis, by wave:"
+
+Students in the sibling analysis / class analysis, by wave:
+
+. tab wave s_sib
+
+           |         s_sib
+      wave |         0          1 |     Total
+-----------+----------------------+----------
+      2014 |       979      4,045 |     5,024 
+      2018 |     1,765          0 |     1,765 
+      2022 |       979      4,475 |     5,454 
+-----------+----------------------+----------
+     Total |     3,723      8,520 |    12,243 
+
+. tab wave s_cls
+
+           |         s_cls
+      wave |         0          1 |     Total
+-----------+----------------------+----------
+      2014 |        61      4,963 |     5,024 
+      2018 |       466      1,299 |     1,765 
+      2022 |       164      5,290 |     5,454 
+-----------+----------------------+----------
+     Total |       691     11,552 |    12,243 
+
+. 
+. * Useful macros for controls used in the regressions henceforth
+. * Parents' employment: merged categories (works / does not work / unknown). To use all the
+. * original categories instead, change the next line to: global EMP "i.emo i.efa"
+. global EMP     "i.emo3 i.efa3"
+
+. global SIB_MIN "girl i.age_grp i.nsib"
+
+. global SIB     "$SIB_MIN fas_z $EMP"
+
+. global CLS_MIN "girl i.age_grp c.n_class"
+
+. global CLS     "$CLS_MIN fas_z $EMP"
+
+. 
+. 
+. *** PART 2. DESCRIPTIVE STATISTICS (Table 1) ***
+. eststo clear
+
+. foreach w in 2014 2018 2022 {
+  2.     eststo D`w': quietly estpost summarize girl complaints3 lifesat nsib share_bro share_girls_cls ///
+>         n_class fas_z momwork dadwork if wave == `w'
+  3. }
+
+. esttab D2014 D2018 D2022 using "$out/tables/T1_descriptives.tex", replace booktabs ///
+>     cells("count mean(fmt(2)) sd(fmt(2))") mtitles("2014" "2018" "2022") nonumber ///
+>     title("Descriptive statistics by wave")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T1_descriptives.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T1_descriptives.tex)
+
+. esttab D2014 D2018 D2022, cells("count mean(fmt(2)) sd(fmt(2))") mtitles("2014" "2018" "2022") nonumber
+
+-------------------------------------------------------------------------------------------------------------------------------
+> --
+                     2014                                   2018                                   2022                        
+>   
+                    count         mean           sd        count         mean           sd        count         mean           
+> sd
+-------------------------------------------------------------------------------------------------------------------------------
+> --
+girl                 5024         0.51         0.50         1765         0.55         0.50         5454         0.52         0.
+> 50
+complaints3          4964        -0.00         1.00         1704         0.00         1.00         5142        -0.00         1.
+> 00
+lifesat              4867         8.22         1.99         1649         8.14         2.03         5225         8.66         1.
+> 74
+nsib                 4433         1.84         1.19            0            .            .         4878         1.65         1.
+> 14
+share_bro            4086         0.53         0.41            0            .            .         4494         0.49         0.
+> 42
+share_girl~s         5018         0.51         0.12         1308         0.55         0.23         5318         0.52         0.
+> 23
+n_class              5024         9.80         2.17         1765         7.79         4.49         5454         9.37         2.
+> 22
+fas_z                4969        -0.00         0.45         1743        -0.00         0.64         5430        -0.00         0.
+> 58
+momwork              4942         0.40         0.49         1684         0.63         0.48         5359         0.69         0.
+> 46
+dadwork              4836         0.75         0.43         1680         0.90         0.30         5314         0.93         0.
+> 26
+-------------------------------------------------------------------------------------------------------------------------------
+> --
+N                    5024                                   1765                                   5454                        
+>   
+-------------------------------------------------------------------------------------------------------------------------------
+> --
+
+. 
+. 
+. *** PART 3. IS EACH TREATMENT AS GOOD AS RANDOMLY ASSIGNED? (BALANCE TESTS) ***
+. * T2 (siblings) and T3 (classes) each put all waves in one table; simulation figures follow.
+. 
+. ** 3.1 Sibling gender (2014 and 2022) **
+. * If sibling gender were random: (a) about 51.2% of babies are boys, so the average
+. * number of brothers should be about 0.512 times the number of siblings; (b) it should
+. * not depend on the student's own sex or on family characteristics.
+. eststo clear
+
+. foreach w in 2014 2022 {
+  2.     di _n "---- Sibling gender, wave `w' ----"
+  3.     forvalues n = 1/4 {
+  4.         quietly summ brothers if s_sib & wave == `w' & nsib == `n'
+  5.         di "Families with `n' sibling(s): N = " r(N) ", mean brothers = " %5.3f r(mean) ", expected = " %5.3f `n'*0.512
+  6.     }
+  7.     cap drop one_sib_bro
+  8.     gen byte one_sib_bro = (brothers > 0) if s_sib & wave == `w' & nsib == 1
+  9.     di "Share of one-sibling families with a brother, tested against 0.512:"
+ 10.     prtest one_sib_bro == 0.512
+ 11.     drop one_sib_bro
+ 12. 
+.     * Does the share of brothers predict other (predetermined) characteristics?
+.     foreach x in girl fas_z momwork dadwork {
+ 13.         eststo B`w'_`x': quietly reg `x' share_bro i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
+ 14.     }
+ 15.     if `w' == 2014 {
+ 16.         foreach x in mfses mmses {
+ 17.             eststo B`w'_`x': quietly reg `x' share_bro i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
+ 18.         }
+ 19.     }
+ 20.     di "Joint test: do own sex, affluence and parents' work predict the share of brothers?"
+ 21.     quietly reg share_bro girl fas_z momwork dadwork i.age_grp i.nsib if s_sib & wave == `w', vce(cluster classid)
+ 22.     testparm girl fas_z momwork dadwork
+ 23. }
+
+---- Sibling gender, wave 2014 ----
+Families with 1 sibling(s): N = 1754, mean brothers = 0.612, expected = 0.512
+Families with 2 sibling(s): N = 1526, mean brothers = 0.963, expected = 1.024
+Families with 3 sibling(s): N = 586, mean brothers = 1.297, expected = 1.536
+Families with 4 sibling(s): N = 179, mean brothers = 1.536, expected = 2.048
+(10,489 missing values generated)
+Share of one-sibling families with a brother, tested against 0.512:
+
+One-sample test of proportion                   Number of obs      =      1754
+
+------------------------------------------------------------------------------
+    Variable |       Mean   Std. err.                     [95% conf. interval]
+-------------+----------------------------------------------------------------
+ one_sib_bro |   .6117446   .0116367                      .5889371    .6345521
+------------------------------------------------------------------------------
+    p = proportion(one_sib_bro)                                   z =   8.3572
+H0: p = 0.512
+
+    Ha: p < 0.512               Ha: p != 0.512                 Ha: p > 0.512
+ Pr(Z < z) = 1.0000         Pr(|Z| > |z|) = 0.0000          Pr(Z > z) = 0.0000
+Joint test: do own sex, affluence and parents' work predict the share of brothers?
+
+ ( 1)  girl = 0
+ ( 2)  fas_z = 0
+ ( 3)  momwork = 0
+ ( 4)  dadwork = 0
+
+       F(  4,   534) =   16.58
+            Prob > F =    0.0000
+
+---- Sibling gender, wave 2022 ----
+Families with 1 sibling(s): N = 2216, mean brothers = 0.533, expected = 0.512
+Families with 2 sibling(s): N = 1675, mean brothers = 0.935, expected = 1.024
+Families with 3 sibling(s): N = 462, mean brothers = 1.245, expected = 1.536
+Families with 4 sibling(s): N = 122, mean brothers = 1.680, expected = 2.048
+(10,027 missing values generated)
+Share of one-sibling families with a brother, tested against 0.512:
+
+One-sample test of proportion                   Number of obs      =      2216
+
+------------------------------------------------------------------------------
+    Variable |       Mean   Std. err.                     [95% conf. interval]
+-------------+----------------------------------------------------------------
+ one_sib_bro |   .5333935   .0105978                      .5126223    .5541647
+------------------------------------------------------------------------------
+    p = proportion(one_sib_bro)                                   z =   2.0148
+H0: p = 0.512
+
+    Ha: p < 0.512               Ha: p != 0.512                 Ha: p > 0.512
+ Pr(Z < z) = 0.9780         Pr(|Z| > |z|) = 0.0439          Pr(Z > z) = 0.0220
+Joint test: do own sex, affluence and parents' work predict the share of brothers?
+
+ ( 1)  girl = 0
+ ( 2)  fas_z = 0
+ ( 3)  momwork = 0
+ ( 4)  dadwork = 0
+
+       F(  4,   626) =   13.31
+            Prob > F =    0.0000
+
+. * Each column is a separate regression of the characteristic named at the top on the share of brothers
+. esttab B2014_* B2022_* using "$out/tables/T2_balance_siblings.tex", replace `tex' keep(share_bro) ///
+>     mtitles("2014 girl" "2014 affluence" "2014 mother works" "2014 father works" "2014 father occ." "2014 mother occ." ///
+>             "2022 girl" "2022 affluence" "2022 mother works" "2022 father works") ///
+>     title("Balance tests: share of brothers among siblings")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T2_balance_siblings.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T2_balance_siblings.tex)
+
+. esttab B2014_* B2022_*, `show' keep(share_bro) ///
+>     mtitles("2014 girl" "2014 affl." "2014 mum works" "2014 dad works" "2014 dad occ." "2014 mum occ." ///
+>             "2022 girl" "2022 affl." "2022 mum works" "2022 dad works")
+
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+                      (1)             (2)             (3)             (4)             (5)             (6)             (7)      
+>        (8)             (9)            (10)   
+                2014 girl      2014 affl.    2014 mum w~s    2014 dad w~s         2014 ..         2014 ..       2022 girl      
+> 2022 affl.    2022 mum w~s    2022 dad w~s   
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+share_bro           0.152***       -0.001          -0.044**         0.014           0.046           0.218***        0.110***   
+>     -0.018          -0.057***       -0.011   
+                  (0.020)         (0.018)         (0.019)         (0.017)         (0.075)         (0.080)         (0.018)      
+>    (0.021)         (0.016)         (0.008)   
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+N                    4045            4045            4000            3923            4045            4045            4475      
+>       4475            4402            4378   
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+
+. 
+. ** 3.2 Class gender composition (2014, 2018, 2022) **
+. * If classes were formed at random: (a) family characteristics should not predict the
+. * share of girls; (b) classes should differ in their share of girls by about as much as
+. * random draws would (we simulate this below).
+. eststo clear
+
+. tempfile base pos gl
+
+. foreach w in 2014 2018 2022 {
+  2.     di _n "---- Class composition, wave `w' ----"
+  3.     foreach x in fas_z momwork dadwork {
+  4.         eststo K`w'_`x': quietly reg `x' share_girls_cls girl i.age_grp c.n_class if s_cls & wave == `w', vce(cluster clas
+> sid)
+  5.     }
+  6.     di "Joint test: do affluence and parents' work predict the share of girls?"
+  7.     quietly reg share_girls_cls girl fas_z momwork dadwork i.age_grp c.n_class if s_cls & wave == `w', vce(cluster classid
+> )
+  8.     testparm fas_z momwork dadwork
+  9.     di "Does a student's own sex predict the share of girls among classmates? (about zero if random)"
+ 10.     reg share_girls_cls girl i.age_grp c.n_class if s_cls & wave == `w', vce(cluster classid)
+ 11. 
+.     * Simulation: keep every class the same size but shuffle students' sex at random
+.     * (within age group) 500 times. Compare how much classes differ in their share of girls
+.     * in the real data with the same spread in the shuffled data.
+.     preserve
+ 12.         quietly {
+ 13.             keep if wave == `w' & n_class >= 5 & !missing(girl, age_grp)
+ 14.             keep classid age_grp girl
+ 15.             save `base', replace
+ 16.             collapse (mean) cs = girl, by(classid)
+ 17.             summ cs
+ 18.             local real_sd = r(sd)
+ 19.             use `base', clear
+ 20.             sort age_grp classid
+ 21.             by age_grp: gen slot = _n
+ 22.             keep age_grp classid slot
+ 23.             save `pos', replace
+ 24.             use `base', clear
+ 25.             keep age_grp girl
+ 26.             save `gl', replace
+ 27.             tempname sim
+ 28.             postfile `sim' sd using "$out/sim_sd_`w'.dta", replace
+ 29.             forvalues r = 1/500 {
+ 30.                 use `gl', clear
+ 31.                 gen u = runiform()
+ 32.                 sort age_grp u
+ 33.                 by age_grp: gen slot = _n
+ 34.                 merge m:1 age_grp slot using `pos', nogen keep(match)
+ 35.                 collapse (mean) cs = girl, by(classid)
+ 36.                 summ cs
+ 37.                 post `sim' (r(sd))
+ 38.             }
+ 39.             postclose `sim'
+ 40.             use "$out/sim_sd_`w'.dta", clear
+ 41.             summ sd
+ 42.             local random_sd = r(mean)
+ 43.             count if sd <= `real_sd'
+ 44.             local share_below = r(N)/500
+ 45.             count if sd >= `real_sd'
+ 46.             local share_above = r(N)/500
+ 47.         }
+ 48.         di "Wave `w': real spread of class share girls = " %5.3f `real_sd' ", random-allocation spread = " %5.3f `random_s
+> d' ///
+>            ". Shuffled runs with a smaller spread: " %4.2f `share_below' "; with a larger spread: " %4.2f `share_above' "."
+ 49.         hist sd, xline(`real_sd') xscale(range(0.08 0.28)) xlabel(0.08(0.04)0.28) xtitle("Spread (SD) of class share girls
+> ") ///
+>             title("`w': shuffled classes (bars) vs real classes (line)")
+ 50.         graph export "$out/figures/Fig1_class_balance_`w'.png", replace width(1200)
+ 51.     restore
+ 52. }
+
+---- Class composition, wave 2014 ----
+Joint test: do affluence and parents' work predict the share of girls?
+
+ ( 1)  fas_z = 0
+ ( 2)  momwork = 0
+ ( 3)  dadwork = 0
+
+       F(  3,   532) =    0.99
+            Prob > F =    0.3956
+Does a student's own sex predict the share of girls among classmates? (about zero if random)
+
+Linear regression                               Number of obs     =      4,963
+                                                F(4, 532)         =      65.91
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0877
+                                                Root MSE          =     .11671
+
+                              (Std. err. adjusted for 533 clusters in classid)
+------------------------------------------------------------------------------
+             |               Robust
+share_girl~s | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+        girl |  -.0685529   .0043218   -15.86   0.000    -.0770427   -.0600631
+             |
+     age_grp |
+     Age 13  |   .0231113   .0123407     1.87   0.062    -.0011312    .0473538
+     Age 15  |   .0260468   .0116443     2.24   0.026     .0031724    .0489212
+             |
+     n_class |   .0016142   .0024943     0.65   0.518    -.0032857    .0065141
+       _cons |   .5118235   .0255769    20.01   0.000     .4615793    .5620676
+------------------------------------------------------------------------------
+Wave 2014: real spread of class share girls = 0.109, random-allocation spread = 0.166. Shuffled runs with a smaller spread: 0.0
+> 0; with a larger spread: 1.00.
+(bin=22, start=.15195504, width=.00128102)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/figures/Fig1_class_balance_2014.png not found)
+file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/figures/Fig1_class_balance_2014.png saved as PNG format
+
+---- Class composition, wave 2018 ----
+Joint test: do affluence and parents' work predict the share of girls?
+
+ ( 1)  fas_z = 0
+ ( 2)  momwork = 0
+ ( 3)  dadwork = 0
+
+       F(  3,   160) =    0.68
+            Prob > F =    0.5628
+Does a student's own sex predict the share of girls among classmates? (about zero if random)
+
+Linear regression                               Number of obs     =      1,299
+                                                F(4, 161)         =       3.69
+                                                Prob > F          =     0.0066
+                                                R-squared         =     0.0443
+                                                Root MSE          =     .22669
+
+                              (Std. err. adjusted for 162 clusters in classid)
+------------------------------------------------------------------------------
+             |               Robust
+share_girl~s | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+        girl |   .0832619   .0230704     3.61   0.000     .0377023    .1288215
+             |
+     age_grp |
+     Age 13  |  -.0290444   .0274293    -1.06   0.291    -.0832119    .0251231
+     Age 15  |  -.0497285   .0325888    -1.53   0.129    -.1140851     .014628
+             |
+     n_class |   -.001167   .0040249    -0.29   0.772    -.0091154    .0067815
+       _cons |   .5508126   .0436081    12.63   0.000     .4646949    .6369303
+------------------------------------------------------------------------------
+Wave 2018: real spread of class share girls = 0.233, random-allocation spread = 0.187. Shuffled runs with a smaller spread: 1.0
+> 0; with a larger spread: 0.00.
+(bin=22, start=.16119203, width=.00260156)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/figures/Fig1_class_balance_2018.png not found)
+file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/figures/Fig1_class_balance_2018.png saved as PNG format
+
+---- Class composition, wave 2022 ----
+Joint test: do affluence and parents' work predict the share of girls?
+
+ ( 1)  fas_z = 0
+ ( 2)  momwork = 0
+ ( 3)  dadwork = 0
+
+       F(  3,   587) =    1.51
+            Prob > F =    0.2102
+Does a student's own sex predict the share of girls among classmates? (about zero if random)
+
+Linear regression                               Number of obs     =      5,290
+                                                F(4, 587)         =      14.46
+                                                Prob > F          =     0.0000
+                                                R-squared         =     0.0549
+                                                Root MSE          =     .22518
+
+                              (Std. err. adjusted for 588 clusters in classid)
+------------------------------------------------------------------------------
+             |               Robust
+share_girl~s | Coefficient  std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+        girl |   .0998097   .0137688     7.25   0.000     .0727677    .1268517
+             |
+     age_grp |
+     Age 13  |   -.017132   .0199968    -0.86   0.392     -.056406    .0221421
+     Age 15  |   .0294178   .0201528     1.46   0.145    -.0101626    .0689981
+             |
+     n_class |   -.000717   .0035326    -0.20   0.839     -.007655     .006221
+       _cons |   .4729583   .0378106    12.51   0.000     .3986979    .5472188
+------------------------------------------------------------------------------
+Wave 2022: real spread of class share girls = 0.225, random-allocation spread = 0.172. Shuffled runs with a smaller spread: 1.0
+> 0; with a larger spread: 0.00.
+(bin=22, start=.15748163, width=.00143012)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/figures/Fig1_class_balance_2022.png not found)
+file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/figures/Fig1_class_balance_2022.png saved as PNG format
+
+. esttab K2014_* K2018_* K2022_* using "$out/tables/T3_balance_class.tex", replace `tex' keep(share_girls_cls) ///
+>     mtitles("2014 affluence" "2014 mother works" "2014 father works" "2018 affluence" "2018 mother works" "2018 father works"
+>  ///
+>             "2022 affluence" "2022 mother works" "2022 father works") ///
+>     title("Balance tests: share of girls among classmates")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T3_balance_class.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T3_balance_class.tex)
+
+. esttab K2014_* K2018_* K2022_*, `show' keep(share_girls_cls) ///
+>     mtitles("2014 affl." "2014 mum" "2014 dad" "2018 affl." "2018 mum" "2018 dad" "2022 affl." "2022 mum" "2022 dad")
+
+-------------------------------------------------------------------------------------------------------------------------------
+> -----------------------------
+                      (1)             (2)             (3)             (4)             (5)             (6)             (7)      
+>        (8)             (9)   
+               2014 affl.        2014 mum        2014 dad      2018 affl.        2018 mum        2018 dad      2022 affl.      
+>   2022 mum        2022 dad   
+-------------------------------------------------------------------------------------------------------------------------------
+> -----------------------------
+share_girl~s       -0.082           0.018           0.085          -0.096           0.041           0.028          -0.053      
+>      0.034          -0.022   
+                  (0.081)         (0.091)         (0.074)         (0.135)         (0.077)         (0.047)         (0.048)      
+>    (0.034)         (0.017)   
+-------------------------------------------------------------------------------------------------------------------------------
+> -----------------------------
+N                    4963            4891            4785            1299            1243            1239            5290      
+>       5205            5160   
+-------------------------------------------------------------------------------------------------------------------------------
+> -----------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+
+. 
+. 
+. *** PART 4. HEADLINE RESULTS ***
+. * Effects are in standard deviations of the outcome. Standard errors are clustered by class.
+. * For each wave and outcome we run three models:
+. *   (1) minimal controls   (2) HEADLINE specification   (3) HEADLINE + school-by-age-group FE
+. eststo clear
+
+. 
+. ** 4.1 The models, wave by wave **
+. foreach w in 2014 2022 {
+  2.     foreach y in complaints3 lifesat_z {
+  3.         eststo m1s_`y'_`w': quietly reg `y' share_bro $SIB_MIN if s_sib & wave == `w', vce(cluster classid)
+  4.         eststo m2s_`y'_`w': quietly reg `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  5.         if "`y'" == "complaints3" di "Wave `w', siblings: smallest effect we could reliably detect (80% power), all sister
+> s -> all brothers: " %5.3f 2.8*_se[share_bro]
+  6.         eststo m3s_`y'_`w': quietly areg `y' share_bro girl i.nsib fas_z $EMP if s_sib & wave == `w', ///
+>             absorb(school_age) vce(cluster classid)
+  7.     }
+  8. }
+Wave 2014, siblings: smallest effect we could reliably detect (80% power), all sisters -> all brothers: 0.104
+Wave 2022, siblings: smallest effect we could reliably detect (80% power), all sisters -> all brothers: 0.093
+
+. foreach w in 2014 2018 2022 {
+  2.     foreach y in complaints3 lifesat_z {
+  3.         eststo m1c_`y'_`w': quietly reg `y' share_girls_cls $CLS_MIN if s_cls & wave == `w', vce(cluster classid)
+  4.         eststo m2c_`y'_`w': quietly reg `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+  5.         if "`y'" == "complaints3" {
+  6.             quietly summ share_girls_cls if e(sample)
+  7.             di "Wave `w', classes: smallest effect we could reliably detect (80% power): " %5.3f 2.8*_se[share_girls_cls] 
+> ///
+>                " for 0% -> 100% girls, or " %5.3f 2.8*_se[share_girls_cls]*r(sd) " for a one-standard-deviation change in the
+>  share"
+  8.         }
+  9.         eststo m3c_`y'_`w': quietly areg `y' share_girls_cls girl c.n_class fas_z $EMP if s_cls & wave == `w', ///
+>             absorb(school_age) vce(cluster classid)
+ 10.     }
+ 11. }
+Wave 2014, classes: smallest effect we could reliably detect (80% power): 0.374 for 0% -> 100% girls, or 0.046 for a one-standa
+> rd-deviation change in the share
+Wave 2018, classes: smallest effect we could reliably detect (80% power): 0.337 for 0% -> 100% girls, or 0.078 for a one-standa
+> rd-deviation change in the share
+Wave 2022, classes: smallest effect we could reliably detect (80% power): 0.193 for 0% -> 100% girls, or 0.045 for a one-standa
+> rd-deviation change in the share
+
+. 
+. ** 4.2 Pooled models: do the waves tell the same story? **
+. * "Wave-specific" models give one coefficient per wave. The test lines ask whether those
+. * coefficients are equal. "Common effect" models force one coefficient across waves, which
+. * uses all the data at once (more power) and is only appropriate when the test does not reject.
+. * Wave dummies, and wave-specific own-sex effects, are included in all of them.
+. gen bro_2014   = share_bro * (wave == 2014)
+(3,663 missing values generated)
+
+. gen bro_2022   = share_bro * (wave == 2022)
+(3,663 missing values generated)
+
+. gen girls_2014 = share_girls_cls * (wave == 2014)
+(599 missing values generated)
+
+. gen girls_2018 = share_girls_cls * (wave == 2018)
+(599 missing values generated)
+
+. gen girls_2022 = share_girls_cls * (wave == 2022)
+(599 missing values generated)
+
+. 
+. di _n "######## POOLED MODELS ########"
+
+######## POOLED MODELS ########
+
+. foreach y in complaints3 lifesat_z {
+  2.     eststo PS_`y':  quietly reg `y' bro_2014 bro_2022 i.wave##i.girl i.age_grp i.nsib fas_z $EMP ///
+>         if s_sib & inlist(wave, 2014, 2022), vce(cluster classid)
+  3.     di "`y': sibling effect equal in 2014 and 2022?"
+  4.     test bro_2014 = bro_2022
+  5.     eststo PSc_`y': quietly reg `y' share_bro i.wave##i.girl i.age_grp i.nsib fas_z $EMP ///
+>         if s_sib & inlist(wave, 2014, 2022), vce(cluster classid)
+  6.     eststo PC_`y':  quietly reg `y' girls_2014 girls_2018 girls_2022 i.wave##i.girl i.age_grp c.n_class fas_z $EMP ///
+>         if s_cls, vce(cluster classid)
+  7.     di "`y': class-composition effect equal in all three waves?"
+  8.     test (girls_2014 = girls_2018) (girls_2018 = girls_2022)
+  9.     eststo PCc_`y': quietly reg `y' share_girls_cls i.wave##i.girl i.age_grp c.n_class fas_z $EMP ///
+>         if s_cls, vce(cluster classid)
+ 10. }
+complaints3: sibling effect equal in 2014 and 2022?
+
+ ( 1)  bro_2014 - bro_2022 = 0
+
+       F(  1,  1162) =    0.99
+            Prob > F =    0.3205
+complaints3: class-composition effect equal in all three waves?
+
+ ( 1)  girls_2014 - girls_2018 = 0
+ ( 2)  girls_2018 - girls_2022 = 0
+
+       F(  2,  1282) =    1.23
+            Prob > F =    0.2939
+lifesat_z: sibling effect equal in 2014 and 2022?
+
+ ( 1)  bro_2014 - bro_2022 = 0
+
+       F(  1,  1162) =    3.59
+            Prob > F =    0.0582
+lifesat_z: class-composition effect equal in all three waves?
+
+ ( 1)  girls_2014 - girls_2018 = 0
+ ( 2)  girls_2018 - girls_2022 = 0
+
+       F(  2,  1282) =    4.02
+            Prob > F =    0.0181
+
+. 
+. ** 4.3 Main tables **
+. * T4: sibling gender, headline specification, each wave and pooled (common effect)
+. esttab m2s_complaints3_2014 m2s_complaints3_2022 PSc_complaints3 m2s_lifesat_z_2014 m2s_lifesat_z_2022 PSc_lifesat_z ///
+>     using "$out/tables/T4_main_siblings.tex", replace `tex' keep(share_bro) ///
+>     mtitles("Compl. 2014" "Compl. 2022" "Compl. pooled" "Life sat. 2014" "Life sat. 2022" "Life sat. pooled") ///
+>     title("Sibling gender and mental health (headline specification)")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T4_main_siblings.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T4_main_siblings.tex)
+
+. esttab m2s_complaints3_2014 m2s_complaints3_2022 PSc_complaints3 m2s_lifesat_z_2014 m2s_lifesat_z_2022 PSc_lifesat_z, ///
+>     `show' keep(share_bro) mtitles("Compl. 2014" "Compl. 2022" "Compl. pooled" "Life sat. 2014" "Life sat. 2022" "Life sat. p
+> ooled")
+
+------------------------------------------------------------------------------------------------------------
+                      (1)             (2)             (3)             (4)             (5)             (6)   
+              Compl. 2014     Compl. 2022    Compl. poo~d    Life .. 2014    Life .. 2022    Life .. po~d   
+------------------------------------------------------------------------------------------------------------
+share_bro          -0.050           0.009          -0.017           0.045          -0.046          -0.004   
+                  (0.037)         (0.033)         (0.025)         (0.041)         (0.034)         (0.026)   
+------------------------------------------------------------------------------------------------------------
+N                    4000            4246            8246            3939            4324            8263   
+------------------------------------------------------------------------------------------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+
+. 
+. * T5: class gender composition, headline specification, each wave and pooled (common effect)
+. esttab m2c_complaints3_2014 m2c_complaints3_2018 m2c_complaints3_2022 PCc_complaints3 ///
+>        m2c_lifesat_z_2014 m2c_lifesat_z_2018 m2c_lifesat_z_2022 PCc_lifesat_z ///
+>     using "$out/tables/T5_main_class.tex", replace `tex' keep(share_girls_cls) ///
+>     mtitles("Compl. 2014" "Compl. 2018" "Compl. 2022" "Compl. pooled" "Life sat. 2014" "Life sat. 2018" "Life sat. 2022" "Lif
+> e sat. pooled") ///
+>     title("Class gender composition and mental health (headline specification)")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T5_main_class.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T5_main_class.tex)
+
+. esttab m2c_complaints3_2014 m2c_complaints3_2018 m2c_complaints3_2022 PCc_complaints3 ///
+>        m2c_lifesat_z_2014 m2c_lifesat_z_2018 m2c_lifesat_z_2022 PCc_lifesat_z, ///
+>     `show' keep(share_girls_cls) mtitles("Compl. 2014" "Compl. 2018" "Compl. 2022" "Compl. pooled" ///
+>     "Life sat. 2014" "Life sat. 2018" "Life sat. 2022" "Life sat. pooled")
+
+-------------------------------------------------------------------------------------------------------------------------------
+> -------------
+                      (1)             (2)             (3)             (4)             (5)             (6)             (7)      
+>        (8)   
+              Compl. 2014     Compl. 2018     Compl. 2022    Compl. poo~d    Life .. 2014    Life .. 2018    Life .. 2022    Li
+> fe .. po~d   
+-------------------------------------------------------------------------------------------------------------------------------
+> -------------
+share_girl~s       -0.207           0.064          -0.053          -0.055           0.102           0.338***       -0.052      
+>      0.040   
+                  (0.133)         (0.120)         (0.069)         (0.055)         (0.146)         (0.127)         (0.068)      
+>    (0.057)   
+-------------------------------------------------------------------------------------------------------------------------------
+> -------------
+N                    4908            1265            4994           11167            4817            1212            5074      
+>      11103   
+-------------------------------------------------------------------------------------------------------------------------------
+> -------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+
+. 
+. * T6: the same models comparing only students in the same school and age group
+. esttab m3s_complaints3_2014 m3s_complaints3_2022 m3c_complaints3_2014 m3c_complaints3_2018 m3c_complaints3_2022 ///
+>        m3s_lifesat_z_2014 m3s_lifesat_z_2022 m3c_lifesat_z_2014 m3c_lifesat_z_2018 m3c_lifesat_z_2022 ///
+>     using "$out/tables/T6_within_school.tex", replace `tex' keep(share_bro share_girls_cls) ///
+>     mtitles("Sib 2014" "Sib 2022" "Class 2014" "Class 2018" "Class 2022" "Sib 2014" "Sib 2022" "Class 2014" "Class 2018" "Cla
+> ss 2022") ///
+>     title("Within-school comparison (school-by-age-group fixed effects); columns 1-5 complaints, 6-10 life satisfaction")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T6_within_school.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/T6_within_school.tex)
+
+. esttab m3s_complaints3_2014 m3s_complaints3_2022 m3c_complaints3_2014 m3c_complaints3_2018 m3c_complaints3_2022 ///
+>        m3s_lifesat_z_2014 m3s_lifesat_z_2022 m3c_lifesat_z_2014 m3c_lifesat_z_2018 m3c_lifesat_z_2022, ///
+>     `show' keep(share_bro share_girls_cls) mtitles("C sib14" "C sib22" "C cls14" "C cls18" "C cls22" "L sib14" "L sib22" "L c
+> ls14" "L cls18" "L cls22")
+
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+                      (1)             (2)             (3)             (4)             (5)             (6)             (7)      
+>        (8)             (9)            (10)   
+                  C sib14         C sib22         C cls14         C cls18         C cls22         L sib14         L sib22      
+>    L cls14         L cls18         L cls22   
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+share_bro          -0.074*          0.043                                                           0.045          -0.071**    
+>                                              
+                  (0.039)         (0.036)                                                         (0.040)         (0.035)      
+>                                              
+
+share_girl~s                                       -0.019           0.099           0.048                                      
+>     -0.158          -0.034          -0.043   
+                                                  (0.151)         (0.126)         (0.065)                                      
+>    (0.178)         (0.114)         (0.064)   
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+N                    4000            4246            4908            1265            4994            3939            4324      
+>       4817            1212            5074   
+-------------------------------------------------------------------------------------------------------------------------------
+> ---------------------------------------------
+Standard errors in parentheses
+* p<0.10, ** p<0.05, *** p<0.01
+
+. 
+. 
+. *** PART 5. APPENDIX ***
+. * Everything below goes in the appendix. Each block checks that the headline results do not
+. * depend on a modelling choice, or looks at subgroups (own sex, age) and possible channels.
+. 
+. ** A1. Build-up of the headline model, wave by wave (minimal -> headline -> within school) **
+. foreach w in 2014 2022 {
+  2.     esttab m1s_complaints3_`w' m2s_complaints3_`w' m3s_complaints3_`w' m1s_lifesat_z_`w' m2s_lifesat_z_`w' m3s_lifesat_z_`
+> w' ///
+>         using "$out/tables/A1_buildup_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+>         mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)") ///
+>         title("Sibling gender, `w': (1) minimal, (2) headline, (3) headline + school-by-age FE")
+  3. }
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_siblings_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_siblings_2014.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_siblings_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_siblings_2022.tex)
+
+. foreach w in 2014 2018 2022 {
+  2.     esttab m1c_complaints3_`w' m2c_complaints3_`w' m3c_complaints3_`w' m1c_lifesat_z_`w' m2c_lifesat_z_`w' m3c_lifesat_z_`
+> w' ///
+>         using "$out/tables/A1_buildup_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+>         mtitles("Compl. (1)" "Compl. (2)" "Compl. (3)" "Life sat. (1)" "Life sat. (2)" "Life sat. (3)") ///
+>         title("Class composition, `w': (1) minimal, (2) headline, (3) headline + school-by-age FE")
+  3. }
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_class_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_class_2014.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_class_2018.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_class_2018.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_class_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A1_buildup_class_2022.tex)
+
+. 
+. ** A2. Pooled models with a separate effect for each wave **
+. esttab PS_* using "$out/tables/A2_pooled_siblings.tex", replace `tex' keep(bro_2014 bro_2022) ///
+>     title("Pooled model: sibling gender, effect by wave")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A2_pooled_siblings.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A2_pooled_siblings.tex)
+
+. esttab PC_* using "$out/tables/A2_pooled_class.tex", replace `tex' keep(girls_2014 girls_2018 girls_2022) ///
+>     title("Pooled model: class composition, effect by wave")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A2_pooled_class.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A2_pooled_class.tex)
+
+. 
+. ** A3. Both treatments in one regression (2014 and 2022) **
+. * The headline models study the two treatments separately because they involve different
+. * samples and different problems. This checks that putting them together changes little.
+. eststo clear
+
+. foreach w in 2014 2022 {
+  2.     foreach y in complaints3 lifesat_z {
+  3.         eststo J`w'_`y': quietly reg `y' share_bro share_girls_cls girl i.age_grp i.nsib c.n_class fas_z $EMP ///
+>             if s_sib & s_cls & wave == `w', vce(cluster classid)
+  4.     }
+  5. }
+
+. esttab J* using "$out/tables/A3_joint_model.tex", replace `tex' keep(share_bro share_girls_cls) ///
+>     title("Both treatments in one model")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A3_joint_model.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A3_joint_model.tex)
+
+. 
+. ** A4. Robustness of the headline model **
+. eststo clear
+
+. foreach w in 2014 2018 2022 {
+  2.     * (a) complaints index with sleep difficulties added
+.     if `w' != 2018 eststo Ra_s`w': quietly reg complaints4 share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  3.     eststo Ra_c`w': quietly reg complaints4 share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+  4.     * (b) standard errors clustered by school instead of class
+.     if `w' != 2018 eststo Rb_s`w': quietly reg complaints3 share_bro $SIB if s_sib & wave == `w', vce(cluster school)
+  5.     eststo Rb_c`w': quietly reg complaints3 share_girls_cls $CLS if s_cls & wave == `w', vce(cluster school)
+  6.     * (c) class share based on at least 8 respondents (less noisy)
+.     eststo Rc_c`w': quietly reg complaints3 share_girls_cls $CLS if s_cls & n_class >= 8 & wave == `w', vce(cluster classid)
+  7.     * (e) sibling gender defined as "at least one brother" instead of the share
+.     if `w' != 2018 eststo Re_s`w': quietly reg complaints3 any_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  8. }
+
+. * (d) 2014 only: add father's and mother's occupation
+. eststo Rd_s2014: quietly reg complaints3 share_bro $SIB i.father_occ i.mother_occ if s_sib & wave == 2014, vce(cluster classi
+> d)
+
+. eststo Rd_c2014: quietly reg complaints3 share_girls_cls $CLS i.father_occ i.mother_occ if s_cls & wave == 2014, vce(cluster 
+> classid)
+
+. esttab Ra_* Rb_* Rc_* Rd_* Re_* using "$out/tables/A4_robustness.tex", replace `tex' keep(share_bro share_girls_cls any_bro) 
+> ///
+>     title("Robustness: (a) 4-item index, (b) school clusters, (c) classes with 8+ respondents, (d) parents' occupation, (e) a
+> ny brother")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A4_robustness.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A4_robustness.tex)
+
+. 
+. ** A5. Do effects differ by own sex? **
+. * The main coefficient is the effect for boys; the "girl#" line is how much the effect for
+. * girls differs. "lincom" prints the total effect for girls.
+. eststo clear
+
+. foreach w in 2014 2018 2022 {
+  2.     di _n "######## EFFECTS BY OWN SEX, `w' ########"
+  3.     foreach y in complaints3 lifesat_z {
+  4.         if `w' != 2018 {
+  5.             eststo HS`w'_`y': quietly reg `y' c.share_bro##i.girl i.age_grp i.nsib fas_z $EMP ///
+>                 if s_sib & wave == `w', vce(cluster classid)
+  6.             di "Sibling gender, `y': effect for girls"
+  7.             lincom share_bro + 1.girl#c.share_bro
+  8.         }
+  9.         eststo HC`w'_`y': quietly reg `y' c.share_girls_cls##i.girl i.age_grp c.n_class fas_z $EMP ///
+>             if s_cls & wave == `w', vce(cluster classid)
+ 10.         di "Class composition, `y': effect for girls"
+ 11.         lincom share_girls_cls + 1.girl#c.share_girls_cls
+ 12.     }
+ 13. }
+
+######## EFFECTS BY OWN SEX, 2014 ########
+Sibling gender, complaints3: effect for girls
+
+ ( 1)  share_bro + 1.girl#c.share_bro = 0
+
+------------------------------------------------------------------------------
+ complaints3 | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |  -.0205349   .0563771    -0.36   0.716    -.1312829    .0902132
+------------------------------------------------------------------------------
+Class composition, complaints3: effect for girls
+
+ ( 1)  share_girls_cls + 1.girl#c.share_girls_cls = 0
+
+------------------------------------------------------------------------------
+ complaints3 | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |  -.2564474   .1810021    -1.42   0.157     -.612014    .0991192
+------------------------------------------------------------------------------
+Sibling gender, lifesat_z: effect for girls
+
+ ( 1)  share_bro + 1.girl#c.share_bro = 0
+
+------------------------------------------------------------------------------
+   lifesat_z | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |   .0302756   .0596919     0.51   0.612    -.0869842    .1475353
+------------------------------------------------------------------------------
+Class composition, lifesat_z: effect for girls
+
+ ( 1)  share_girls_cls + 1.girl#c.share_girls_cls = 0
+
+------------------------------------------------------------------------------
+   lifesat_z | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |  -.0054621    .186775    -0.03   0.977    -.3723691     .361445
+------------------------------------------------------------------------------
+
+######## EFFECTS BY OWN SEX, 2018 ########
+Class composition, complaints3: effect for girls
+
+ ( 1)  share_girls_cls + 1.girl#c.share_girls_cls = 0
+
+------------------------------------------------------------------------------
+ complaints3 | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |  -.1300872   .1528776    -0.85   0.396    -.4319911    .1718166
+------------------------------------------------------------------------------
+Class composition, lifesat_z: effect for girls
+
+ ( 1)  share_girls_cls + 1.girl#c.share_girls_cls = 0
+
+------------------------------------------------------------------------------
+   lifesat_z | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |   .2951789    .172596     1.71   0.089     -.045665    .6360229
+------------------------------------------------------------------------------
+
+######## EFFECTS BY OWN SEX, 2022 ########
+Sibling gender, complaints3: effect for girls
+
+ ( 1)  share_bro + 1.girl#c.share_bro = 0
+
+------------------------------------------------------------------------------
+ complaints3 | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |   .0405193   .0496385     0.82   0.415    -.0569585     .137997
+------------------------------------------------------------------------------
+Class composition, complaints3: effect for girls
+
+ ( 1)  share_girls_cls + 1.girl#c.share_girls_cls = 0
+
+------------------------------------------------------------------------------
+ complaints3 | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |   .0774756   .1040256     0.74   0.457    -.1268321    .2817833
+------------------------------------------------------------------------------
+Sibling gender, lifesat_z: effect for girls
+
+ ( 1)  share_bro + 1.girl#c.share_bro = 0
+
+------------------------------------------------------------------------------
+   lifesat_z | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |   -.089114   .0491374    -1.81   0.070    -.1856077    .0073798
+------------------------------------------------------------------------------
+Class composition, lifesat_z: effect for girls
+
+ ( 1)  share_girls_cls + 1.girl#c.share_girls_cls = 0
+
+------------------------------------------------------------------------------
+   lifesat_z | Coefficient  Std. err.      t    P>|t|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+         (1) |  -.1718609   .1076441    -1.60   0.111    -.3832753    .0395535
+------------------------------------------------------------------------------
+
+. esttab HS2014_* HS2022_* using "$out/tables/A5_by_sex_siblings.tex", replace `tex' keep(share_bro 1.girl#c.share_bro) ///
+>     mtitles("Compl. 2014" "Life sat. 2014" "Compl. 2022" "Life sat. 2022") title("Sibling gender by own sex")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A5_by_sex_siblings.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A5_by_sex_siblings.tex)
+
+. esttab HC2014_* HC2018_* HC2022_* using "$out/tables/A5_by_sex_class.tex", replace `tex' keep(share_girls_cls 1.girl#c.share_
+> girls_cls) ///
+>     mtitles("Compl. 2014" "Life sat. 2014" "Compl. 2018" "Life sat. 2018" "Compl. 2022" "Life sat. 2022") ///
+>     title("Class composition by own sex")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A5_by_sex_class.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A5_by_sex_class.tex)
+
+. 
+. ** A6. Do effects differ by age group? (not done for 2018: only 289 students there are aged 13) **
+. foreach w in 2014 2022 {
+  2.     di _n "######## EFFECTS BY AGE GROUP, `w' ########"
+  3.     eststo clear
+  4.     foreach y in complaints3 lifesat_z {
+  5.         forvalues g = 1/3 {
+  6.             eststo AS`g'_`y': quietly reg `y' share_bro girl i.nsib fas_z $EMP ///
+>                 if s_sib & wave == `w' & age_grp == `g', vce(cluster classid)
+  7.         }
+  8.         quietly reg `y' c.share_bro##i.age_grp girl i.nsib fas_z $EMP if s_sib & wave == `w', vce(cluster classid)
+  9.         di "Sibling gender, `y': do the three age effects differ?"
+ 10.         testparm i.age_grp#c.share_bro
+ 11.     }
+ 12.     esttab AS* using "$out/tables/A6_by_age_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+>         mtitles("Compl. 11" "Compl. 13" "Compl. 15" "Life sat. 11" "Life sat. 13" "Life sat. 15") ///
+>         title("Sibling gender by age group, `w'")
+ 13.     eststo clear
+ 14.     foreach y in complaints3 lifesat_z {
+ 15.         forvalues g = 1/3 {
+ 16.             eststo AC`g'_`y': quietly reg `y' share_girls_cls girl c.n_class fas_z $EMP ///
+>                 if s_cls & wave == `w' & age_grp == `g', vce(cluster classid)
+ 17.         }
+ 18.         quietly reg `y' c.share_girls_cls##i.age_grp girl c.n_class fas_z $EMP if s_cls & wave == `w', vce(cluster classid
+> )
+ 19.         di "Class composition, `y': do the three age effects differ?"
+ 20.         testparm i.age_grp#c.share_girls_cls
+ 21.     }
+ 22.     esttab AC* using "$out/tables/A6_by_age_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+>         mtitles("Compl. 11" "Compl. 13" "Compl. 15" "Life sat. 11" "Life sat. 13" "Life sat. 15") ///
+>         title("Class composition by age group, `w'")
+ 23. }
+
+######## EFFECTS BY AGE GROUP, 2014 ########
+Sibling gender, complaints3: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_bro = 0
+ ( 2)  3.age_grp#c.share_bro = 0
+
+       F(  2,   534) =    1.82
+            Prob > F =    0.1624
+Sibling gender, lifesat_z: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_bro = 0
+ ( 2)  3.age_grp#c.share_bro = 0
+
+       F(  2,   534) =    1.60
+            Prob > F =    0.2038
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_siblings_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_siblings_2014.tex)
+Class composition, complaints3: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_girls_cls = 0
+ ( 2)  3.age_grp#c.share_girls_cls = 0
+
+       F(  2,   532) =    5.16
+            Prob > F =    0.0060
+Class composition, lifesat_z: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_girls_cls = 0
+ ( 2)  3.age_grp#c.share_girls_cls = 0
+
+       F(  2,   532) =    1.24
+            Prob > F =    0.2916
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_class_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_class_2014.tex)
+
+######## EFFECTS BY AGE GROUP, 2022 ########
+Sibling gender, complaints3: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_bro = 0
+ ( 2)  3.age_grp#c.share_bro = 0
+
+       F(  2,   627) =    1.06
+            Prob > F =    0.3470
+Sibling gender, lifesat_z: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_bro = 0
+ ( 2)  3.age_grp#c.share_bro = 0
+
+       F(  2,   627) =    1.35
+            Prob > F =    0.2601
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_siblings_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_siblings_2022.tex)
+Class composition, complaints3: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_girls_cls = 0
+ ( 2)  3.age_grp#c.share_girls_cls = 0
+
+       F(  2,   587) =    2.43
+            Prob > F =    0.0888
+Class composition, lifesat_z: do the three age effects differ?
+
+ ( 1)  2.age_grp#c.share_girls_cls = 0
+ ( 2)  3.age_grp#c.share_girls_cls = 0
+
+       F(  2,   587) =    4.65
+            Prob > F =    0.0100
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_class_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A6_by_age_class_2022.tex)
+
+. 
+. ** A7. Possible channels (mechanisms) **
+. * For all five outcomes, HIGHER = WORSE (harder to talk to a parent, more bullied,
+. * less classmate support, likes school less), so a negative coefficient is "better".
+. foreach w in 2014 2018 2022 {
+  2.     eststo clear
+  3.     foreach m in z_talkmother z_talkfather z_beenbullied z_studsupport z_likeschool {
+  4.         if `w' != 2018 eststo MS_`m': quietly reg `m' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  5.         eststo MC_`m': quietly reg `m' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+  6.     }
+  7.     if `w' != 2018 {
+  8.         esttab MS_* using "$out/tables/A7_mechanisms_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+>             title("Channels: sibling gender, `w'")
+  9.     }
+ 10.     esttab MC_* using "$out/tables/A7_mechanisms_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+>         title("Channels: class composition, `w'")
+ 11. }
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_siblings_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_siblings_2014.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_class_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_class_2014.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_class_2018.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_class_2018.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_siblings_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_siblings_2022.tex)
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_class_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A7_mechanisms_class_2022.tex)
+
+. 
+. ** A8. Ordered probit **
+. * Ordinary regression treats answers such as "never ... every day" as equally spaced numbers.
+. * Ordered probit only uses their order. If both agree, the equal-spacing assumption is not
+. * driving the results. It needs whole-number answers, so it is run on the three symptom
+. * questions one at a time and on life satisfaction (not on the averaged index).
+. foreach w in 2014 2022 {
+  2.     eststo clear
+  3.     foreach y in rev_feellow rev_irritable rev_nervous lifesat {
+  4.         eststo ols_`y': quietly reg `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  5.         eststo oprobit_`y': quietly oprobit `y' share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  6.     }
+  7.     esttab ols_* oprobit_* using "$out/tables/A8_oprobit_siblings_`w'.tex", replace `tex' keep(share_bro) ///
+>         title("Sibling gender: OLS and ordered probit, `w'")
+  8.     quietly oprobit rev_feellow share_bro $SIB if s_sib & wave == `w', vce(cluster classid)
+  9.     di "Wave `w': change in the probability of feeling low EVERY DAY, all sisters -> all brothers:"
+ 10.     margins, dydx(share_bro) predict(outcome(5))
+ 11. }
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_siblings_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_siblings_2014.tex)
+Wave 2014: change in the probability of feeling low EVERY DAY, all sisters -> all brothers:
+
+Average marginal effects                                 Number of obs = 3,999
+Model VCE: Robust
+
+Expression: Pr(rev_feellow==5), predict(outcome(5))
+dy/dx wrt:  share_bro
+
+------------------------------------------------------------------------------
+             |            Delta-method
+             |      dy/dx   std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+   share_bro |  -.0096327   .0073314    -1.31   0.189     -.024002    .0047367
+------------------------------------------------------------------------------
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_siblings_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_siblings_2022.tex)
+Wave 2022: change in the probability of feeling low EVERY DAY, all sisters -> all brothers:
+
+Average marginal effects                                 Number of obs = 4,276
+Model VCE: Robust
+
+Expression: Pr(rev_feellow==5), predict(outcome(5))
+dy/dx wrt:  share_bro
+
+------------------------------------------------------------------------------
+             |            Delta-method
+             |      dy/dx   std. err.      z    P>|z|     [95% conf. interval]
+-------------+----------------------------------------------------------------
+   share_bro |  -.0102443   .0090634    -1.13   0.258    -.0280083    .0075196
+------------------------------------------------------------------------------
+
+. foreach w in 2014 2018 2022 {
+  2.     eststo clear
+  3.     foreach y in rev_feellow rev_irritable rev_nervous lifesat {
+  4.         eststo ols_`y': quietly reg `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+  5.         eststo oprobit_`y': quietly oprobit `y' share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+  6.     }
+  7.     esttab ols_* oprobit_* using "$out/tables/A8_oprobit_class_`w'.tex", replace `tex' keep(share_girls_cls) ///
+>         title("Class composition: OLS and ordered probit, `w'")
+  8.     quietly oprobit rev_feellow share_girls_cls $CLS if s_cls & wave == `w', vce(cluster classid)
+  9.     di "Wave `w': change in the probability of feeling low EVERY DAY, 0% -> 100% girls:"
+ 10.     margins, dydx(share_girls_cls) predict(outcome(5))
+ 11. }
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_class_2014.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_class_2014.tex)
+Wave 2014: change in the probability of feeling low EVERY DAY, 0% -> 100% girls:
+
+Average marginal effects                                 Number of obs = 4,906
+Model VCE: Robust
+
+Expression: Pr(rev_feellow==5), predict(outcome(5))
+dy/dx wrt:  share_girls_cls
+
+---------------------------------------------------------------------------------
+                |            Delta-method
+                |      dy/dx   std. err.      z    P>|z|     [95% conf. interval]
+----------------+----------------------------------------------------------------
+share_girls_cls |  -.0349566   .0257048    -1.36   0.174    -.0853372     .015424
+---------------------------------------------------------------------------------
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_class_2018.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_class_2018.tex)
+Wave 2018: change in the probability of feeling low EVERY DAY, 0% -> 100% girls:
+
+Average marginal effects                                 Number of obs = 1,261
+Model VCE: Robust
+
+Expression: Pr(rev_feellow==5), predict(outcome(5))
+dy/dx wrt:  share_girls_cls
+
+---------------------------------------------------------------------------------
+                |            Delta-method
+                |      dy/dx   std. err.      z    P>|z|     [95% conf. interval]
+----------------+----------------------------------------------------------------
+share_girls_cls |  -.0006508   .0237749    -0.03   0.978    -.0472487    .0459472
+---------------------------------------------------------------------------------
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_class_2022.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A8_oprobit_class_2022.tex)
+Wave 2022: change in the probability of feeling low EVERY DAY, 0% -> 100% girls:
+
+Average marginal effects                                 Number of obs = 5,038
+Model VCE: Robust
+
+Expression: Pr(rev_feellow==5), predict(outcome(5))
+dy/dx wrt:  share_girls_cls
+
+---------------------------------------------------------------------------------
+                |            Delta-method
+                |      dy/dx   std. err.      z    P>|z|     [95% conf. interval]
+----------------+----------------------------------------------------------------
+share_girls_cls |   .0050638   .0176604     0.29   0.774    -.0295499    .0396776
+---------------------------------------------------------------------------------
+
+. 
+. ** A9. Small categories (these can make estimates unstable) **
+. * Some answer categories contain very few students. Here is how many, and a check that the
+. * headline results survive when they are handled differently (if you switched $EMP above,
+. * check (a) uses the other version).
+. di _n "######## SMALL-CATEGORY COUNTS ########"
+
+######## SMALL-CATEGORY COUNTS ########
+
+. di "Parents' employment (categories 3, 4 and 9 are small): mother, then father"
+Parents' employment (categories 3, 4 and 9 are small): mother, then father
+
+. tab emo wave
+
+           |               wave
+       emo |      2014       2018       2022 |     Total
+-----------+---------------------------------+----------
+         1 |     2,000      1,056      3,676 |     6,732 
+         2 |     2,942        628      1,683 |     5,253 
+         3 |         5          3         14 |        22 
+         4 |        25          2         13 |        40 
+         9 |        52         76         68 |       196 
+-----------+---------------------------------+----------
+     Total |     5,024      1,765      5,454 |    12,243 
+
+. tab efa wave
+
+           |               wave
+       efa |      2014       2018       2022 |     Total
+-----------+---------------------------------+----------
+         1 |     3,620      1,507      4,928 |    10,055 
+         2 |     1,216        173        386 |     1,775 
+         3 |        23          9         36 |        68 
+         4 |       117         11         57 |       185 
+         9 |        48         65         47 |       160 
+-----------+---------------------------------+----------
+     Total |     5,024      1,765      5,454 |    12,243 
+
+. di "Number of siblings (4 is small), sibling sample only:"
+Number of siblings (4 is small), sibling sample only:
+
+. tab nsib wave if sibsample
+
+           |         wave
+      nsib |      2014       2022 |     Total
+-----------+----------------------+----------
+         1 |     1,770      2,228 |     3,998 
+         2 |     1,545      1,681 |     3,226 
+         3 |       587        462 |     1,049 
+         4 |       184        123 |       307 
+-----------+----------------------+----------
+     Total |     4,086      4,494 |     8,580 
+
+. di "Life satisfaction (scores 0 to 4 are small; the 2014 spike at 0 looks unusual):"
+Life satisfaction (scores 0 to 4 are small; the 2014 spike at 0 looks unusual):
+
+. tab lifesat wave
+
+                      |               wave
+    Life satisfaction |      2014       2018       2022 |     Total
+----------------------+---------------------------------+----------
+0, worst possible lif |       125         16         23 |       164 
+                    1 |        12          9         17 |        38 
+                    2 |        15          7         14 |        36 
+                    3 |         8         17         31 |        56 
+                    4 |        35         26         58 |       119 
+                    5 |       139        115        195 |       449 
+                    6 |       234        114        227 |       575 
+                    7 |       647        192        455 |     1,294 
+                    8 |     1,068        290        835 |     2,193 
+                    9 |     1,199        300      1,042 |     2,541 
+10, best possible lif |     1,385        563      2,328 |     4,276 
+----------------------+---------------------------------+----------
+                Total |     4,867      1,649      5,225 |    11,741 
+
+. di "Age group (age 13 in 2018 is small):"
+Age group (age 13 in 2018 is small):
+
+. tab age_grp wave
+
+           |               wave
+   age_grp |      2014       2018       2022 |     Total
+-----------+---------------------------------+----------
+    Age 11 |     1,635        682      1,782 |     4,099 
+    Age 13 |     1,657        289      1,791 |     3,737 
+    Age 15 |     1,732        794      1,876 |     4,402 
+-----------+---------------------------------+----------
+     Total |     5,024      1,765      5,449 |    12,238 
+
+. 
+. eststo clear
+
+. foreach w in 2014 2022 {
+  2.     * (a) parents' employment with ALL the original categories instead of the merged ones
+.     eststo Qa_s`w': quietly reg complaints3 share_bro girl i.age_grp i.nsib fas_z i.emo i.efa if s_sib & wave == `w', vce(clu
+> ster classid)
+  3.     * (b) families with at most 3 siblings (drops the small group with 4)
+.     eststo Qb_s`w': quietly reg complaints3 share_bro $SIB if s_sib & nsib <= 3 & wave == `w', vce(cluster classid)
+  4.     * (c) life satisfaction without students who answered 0
+.     eststo Qc_s`w': quietly reg lifesat_z share_bro $SIB if s_sib & lifesat > 0 & wave == `w', vce(cluster classid)
+  5. }
+
+. esttab Q* using "$out/tables/A9_small_categories_siblings.tex", replace `tex' keep(share_bro) ///
+>     title("Small-category checks: sibling gender")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A9_small_categories_siblings.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A9_small_categories_siblings.tex)
+
+. eststo clear
+
+. foreach w in 2014 2018 2022 {
+  2.     eststo Qa_c`w': quietly reg complaints3 share_girls_cls girl i.age_grp c.n_class fas_z i.emo i.efa if s_cls & wave == 
+> `w', vce(cluster classid)
+  3.     eststo Qc_c`w': quietly reg lifesat_z share_girls_cls $CLS if s_cls & lifesat > 0 & wave == `w', vce(cluster classid)
+  4. }
+
+. esttab Q* using "$out/tables/A9_small_categories_class.tex", replace `tex' keep(share_girls_cls) ///
+>     title("Small-category checks: class composition")
+(file C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A9_small_categories_class.tex not found)
+(output written to C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables/A9_small_categories_class.tex)
+
+. 
+. 
+. ** WITHIN-SCHOOL RANDOMISATION TEST (500 draws per wave)
+. 
+. tempfile ws_original ws_positions ws_genders ws_results
+
+. tempname ws_handle
+
+. 
+. quietly {
+
+. 
+. preserve
+
+. quietly use `ws_results', clear
+
+. format actual_sd simulated_sd p_upper p_lower %7.4f
+
+. di _n "WITHIN-SCHOOL RANDOMISATION RESULTS (500 simulations per wave)"
+
+WITHIN-SCHOOL RANDOMISATION RESULTS (500 simulations per wave)
+
+. list wave actual_sd simulated_sd p_upper p_lower, noobs clean abbreviate(20)
+
+    wave   actual_sd   simulated_sd   p_upper   p_lower  
+    2014      0.1088         0.1364    1.0000    0.0020  
+    2018      0.2326         0.2178    0.0180    0.9840  
+    2022      0.2250         0.1681    0.0020    1.0000  
+
+. restore
+
+. 
+. di _n "Finished. Tables are in $out/tables, figures in $out/figures."
+
+Finished. Tables are in C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/tables, figures in C:/Users/zedbe/Downloads/Allro
+> unds_STATA_v8_1/results/figures.
+
+. log close
+      name:  <unnamed>
+       log:  C:/Users/zedbe/Downloads/Allrounds_STATA_v8_1/results/EC338_Group25_CountryAlbania.log
+  log type:  text
+ closed on:  16 Nov 2026, 03:45:42
+-------------------------------------------------------------------------------------------------------------------------------
